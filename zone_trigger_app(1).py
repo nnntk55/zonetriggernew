@@ -83,48 +83,88 @@ def fetch_data(period, interval):
     except Exception as e:
         return None
 
-def update_all_stoch_rsi():
-    """ ดึงข้อมูลและคำนวณค่า Stoch RSI ของทุก Timeframe พร้อมประเมินสถานะอัตโนมัติ """
+def update_all_stoch_rsi(tg_token, tg_chat_id):
+    """ ดึงข้อมูลและคำนวณค่า Stoch RSI พร้อมแจ้งเตือนทุกย่างก้าวของ Stage """
     try:
-        # คำนวณ 4H
-        df_4h = fetch_data(period="60d", interval="4h")
-        if df_4h is not None and not df_4h.empty:
-            k_4h, d_4h = calculate_stochastic_rsi(df_4h)
-            k_val = float(k_4h.iloc[-1])
-            d_val = float(d_4h.iloc[-1])
-            st.session_state.stoch_rsi_4h = {"k": k_val, "d": d_val}
-            
-            # เช็ก Stage 1 อัตโนมัติทันที
-            if st.session_state.current_stage == 1:
+        # 1. เช็ก Stage 1 (ดู Timeframe 4H)
+        if st.session_state.current_stage == 1:
+            df_4h = fetch_data(period="60d", interval="4h")
+            if df_4h is not None and not df_4h.empty:
+                k_4h, d_4h = calculate_stochastic_rsi(df_4h)
+                k_val = float(k_4h.iloc[-1])
+                d_val = float(d_4h.iloc[-1])
+                st.session_state.stoch_rsi_4h = {"k": k_val, "d": d_val}
+                
                 if k_val > 55:
                     st.session_state.target_direction = "HIGH"
                     st.session_state.current_stage = 2
+                    msg = f"📢 *[Stage 1 ผ่านแล้ว]*: 4H Stoch RSI (%K = {k_val:.2f}) เข้าโซน HIGH 📈\n👉 ย้ายเข้าสู่ *Stage 2* (รอ 1H คอนเฟิร์มโซน)"
+                    add_log(msg, tg_token, tg_chat_id)
                 elif k_val < 45:
                     st.session_state.target_direction = "LOW"
                     st.session_state.current_stage = 2
+                    msg = f"📢 *[Stage 1 ผ่านแล้ว]*: 4H Stoch RSI (%K = {k_val:.2f}) เข้าโซน LOW 📉\n👉 ย้ายเข้าสู่ *Stage 2* (รอ 1H คอนเฟิร์มโซน)"
+                    add_log(msg, tg_token, tg_chat_id)
 
-        # คำนวณ 1H
-        df_1h = fetch_data(period="14d", interval="1h")
-        if df_1h is not None and not df_1h.empty:
-            k_1h, d_1h = calculate_stochastic_rsi(df_1h)
-            k_val = float(k_1h.iloc[-1])
-            d_val = float(d_1h.iloc[-1])
-            st.session_state.stoch_rsi_1h = {"k": k_val, "d": d_val}
-            
-            # เช็ก Stage 2 อัตโนมัติทันที
-            if st.session_state.current_stage == 2:
+        # 2. เช็ก Stage 2 (ดู Timeframe 1H)
+        if st.session_state.current_stage == 2:
+            df_1h = fetch_data(period="14d", interval="1h")
+            if df_1h is not None and not df_1h.empty:
+                k_1h, d_1h = calculate_stochastic_rsi(df_1h)
+                k_val = float(k_1h.iloc[-1])
+                d_val = float(d_1h.iloc[-1])
+                st.session_state.stoch_rsi_1h = {"k": k_val, "d": d_val}
+                
                 direction = st.session_state.target_direction
                 if direction == "HIGH" and k_val > 80:
                     st.session_state.current_stage = 3
+                    msg = f"📢 *[Stage 2 ผ่านแล้ว]*: 1H Stoch RSI (%K = {k_val:.2f}) ขึ้นแตะ High Zone สำเร็จ 🚀\n👉 ย้ายเข้าสู่ *Stage 3* (รอสัญญาณตัดกันใน 15M)"
+                    add_log(msg, tg_token, tg_chat_id)
                 elif direction == "LOW" and k_val < 20:
                     st.session_state.current_stage = 3
-            
-        # คำนวณ 15M
-        df_15m = fetch_data(period="5d", interval="15m")
-        if df_15m is not None and not df_15m.empty:
-            k_15m, d_15m = calculate_stochastic_rsi(df_15m)
-            st.session_state.stoch_rsi_15m = {"k": float(k_15m.iloc[-1]), "d": float(d_15m.iloc[-1])}
-            
+                    msg = f"📢 *[Stage 2 ผ่านแล้ว]*: 1H Stoch RSI (%K = {k_val:.2f}) ลงแตะ Low Zone สำเร็จ 📉\n👉 ย้ายเข้าสู่ *Stage 3* (รอสัญญาณตัดกันใน 15M)"
+                    add_log(msg, tg_token, tg_chat_id)
+
+        # 3. เช็ก Stage 3 (ดู Timeframe 15M และหาจุดตัด)
+        if st.session_state.current_stage == 3:
+            df_15m = fetch_data(period="5d", interval="15m")
+            if df_15m is not None and not df_15m.empty:
+                k_15m, d_15m = calculate_stochastic_rsi(df_15m)
+                latest_k = float(k_15m.iloc[-1])
+                latest_d = float(d_15m.iloc[-1])
+                prev_k = float(k_15m.iloc[-2])
+                prev_d = float(d_15m.iloc[-2])
+                
+                st.session_state.stoch_rsi_15m = {"k": latest_k, "d": latest_d}
+                
+                direction = st.session_state.target_direction
+                is_bullish_cross = (prev_k < prev_d) and (latest_k > latest_d)
+                is_bearish_cross = (prev_k > prev_d) and (latest_k < latest_d)
+                
+                if direction == "HIGH" and latest_k > 80 and is_bearish_cross:
+                    msg = f"🔥 *[Stage 3 สำเร็จ]*: 15M HIGH ZONE TRIGGER (Bearish Cross)\nK = {latest_k:.2f} ตัด D ลงมาแล้ว! 🛑\n✅ สัญญาณครบสมบูรณ์ รีเซ็ตระบบกลับ Stage 1 เพื่อเริ่มรอบใหม่"
+                    add_log(msg, tg_token, tg_chat_id)
+                    st.session_state.current_stage = 1
+                    st.session_state.target_direction = "-"
+                elif direction == "LOW" and latest_k < 20 and is_bullish_cross:
+                    msg = f"🔥 *[Stage 3 สำเร็จ]*: 15M LOW ZONE TRIGGER (Bullish Cross)\nK = {latest_k:.2f} ตัด D ขึ้นไปแล้ว! 🚀\n✅ สัญญาณครบสมบูรณ์ รีเซ็ตระบบกลับ Stage 1 เพื่อเริ่มรอบใหม่"
+                    add_log(msg, tg_token, tg_chat_id)
+                    st.session_state.current_stage = 1
+                    st.session_state.target_direction = "-"
+
+        # ดึงค่าที่เหลือมาเติมหน้าจอให้ครบถ้วนกรณีอยู่ข้ามสเต็ป
+        if st.session_state.current_stage != 1 and (st.session_state.stoch_rsi_4h["k"] == 0.0):
+            df_4h = fetch_data(period="60d", interval="4h")
+            if df_4h is not None and not df_4h.empty:
+                k_4h, d_4h = calculate_stochastic_rsi(df_4h)
+                st.session_state.stoch_rsi_4h = {"k": float(k_4h.iloc[-1]), "d": float(d_4h.iloc[-1])}
+
+        if st.session_state.current_stage == 3 and (st.session_state.stoch_rsi_1h["k"] == 0.0):
+            df_1h = fetch_data(period="14d", interval="1h")
+            if df_1h is not None and not df_1h.empty:
+                k_1h, d_1h = calculate_stochastic_rsi(df_1h)
+                st.session_state.stoch_rsi_1h = {"k": float(k_1h.iloc[-1]), "d": float(d_1h.iloc[-1])}
+
     except Exception as e:
         pass
 
@@ -134,48 +174,11 @@ def update_all_stoch_rsi():
 def run_bot(tg_token, tg_chat_id):
     while st.session_state.bot_status == "Running":
         try:
-            update_all_stoch_rsi()
-            stage = st.session_state.current_stage
-            direction = st.session_state.target_direction
-            
-            if stage == 2:
-                k_1h_val = st.session_state.stoch_rsi_1h["k"]
-                if direction == "HIGH" and k_1h_val > 80:
-                    msg = f"📢 *[Stage 2]*: 1H Stoch RSI HIGH ZONE\nK = {k_1h_val:.2f}\n👉 เข้าสู่ Stage 3 (รอสัญญาณ 15M ตัดกัน)"
-                    add_log(msg, tg_token, tg_chat_id)
-                    st.session_state.current_stage = 3
-                elif direction == "LOW" and k_1h_val < 20:
-                    msg = f"📢 *[Stage 2]*: 1H Stoch RSI LOW ZONE\nK = {k_1h_val:.2f}\n👉 เข้าสู่ Stage 3 (รอสัญญาณ 15M ตัดกัน)"
-                    add_log(msg, tg_token, tg_chat_id)
-                    st.session_state.current_stage = 3
-                        
-            elif stage == 3:
-                df_15m = fetch_data(period="5d", interval="15m")
-                if df_15m is not None and not df_15m.empty:
-                    k_15m, d_15m = calculate_stochastic_rsi(df_15m)
-                    latest_k = float(k_15m.iloc[-1])
-                    latest_d = float(d_15m.iloc[-1])
-                    prev_k = float(k_15m.iloc[-2])
-                    prev_d = float(d_15m.iloc[-2])
-                    
-                    is_bullish_cross = (prev_k < prev_d) and (latest_k > latest_d)
-                    is_bearish_cross = (prev_k > prev_d) and (latest_k < latest_d)
-                    
-                    if direction == "HIGH" and latest_k > 80 and is_bearish_cross:
-                        msg = f"🔥 *[Stage 3]*: 15M HIGH ZONE TRIGGER (Bearish Cross)\nK = {latest_k:.2f}\n✅ ปิดรอบครบ 3 Stage! รีเซ็ตกลับ Stage 1"
-                        add_log(msg, tg_token, tg_chat_id)
-                        st.session_state.current_stage = 1
-                        st.session_state.target_direction = "-"
-                    elif direction == "LOW" and latest_k < 20 and is_bullish_cross:
-                        msg = f"🔥 *[Stage 3]*: 15M LOW ZONE TRIGGER (Bullish Cross)\nK = {latest_k:.2f}\n✅ ปิดรอบครบ 3 Stage! รีเซ็ตกลับ Stage 1"
-                        add_log(msg, tg_token, tg_chat_id)
-                        st.session_state.current_stage = 1
-                        st.session_state.target_direction = "-"
-                        
+            update_all_stoch_rsi(tg_token, tg_chat_id)
         except Exception as e:
             add_log(f"⚠️ Error in loop: {str(e)}", tg_token, tg_chat_id)
             
-        for _ in range(15):  # เช็กและอัปเดตทุกๆ 15 วินาทีเพื่อให้ไวขึ้น
+        for _ in range(15):  # เช็กทุกๆ 15 วินาที
             if st.session_state.bot_status != "Running":
                 break
             time.sleep(1)
@@ -184,7 +187,7 @@ def run_bot(tg_token, tg_chat_id):
 # STREAMLIT UI
 # ==========================================
 st.title("🛡️ XAUUSD Zone Trigger Bot Dashboard")
-st.markdown("ระบบเฝ้าระกราฟทองคำอัตโนมัติ 3 Stages พร้อม Stoch RSI และระบบแจ้งเตือน Telegram แบบ Real-Time")
+st.markdown("ระบบเฝ้าระกราฟทองคำอัตโนมัติ 3 Stages พร้อม Stoch RSI และระบบแจ้งเตือน Telegram ทุก Stage แบบ Real-Time")
 
 st.sidebar.header("⚙️ Telegram Settings")
 telegram_token = st.sidebar.text_input("Bot Token", type="password", placeholder="ใส่ Bot Token")
@@ -194,7 +197,7 @@ st.sidebar.markdown("---")
 st.sidebar.subheader("🧪 ทดสอบการเชื่อมต่อ")
 if st.sidebar.button("📤 ส่งข้อความทดสอบไป Telegram"):
     if telegram_token and telegram_chat_id:
-        success = send_telegram_notification("🟢 *ทดสอบการเชื่อมต่อสำเร็จ!* บอทพร้อมส่งแจ้งเตือนแล้วค่ะ", telegram_token, telegram_chat_id)
+        success = send_telegram_notification("🟢 *ทดสอบการเชื่อมต่อสำเร็จ!* บอทรายงานตัวพร้อมส่งแจ้งเตือนทุก Stage แล้วค่ะ", telegram_token, telegram_chat_id)
         if success:
             st.sidebar.success("✅ ส่งข้อความสำเร็จ!")
         else:
@@ -202,8 +205,8 @@ if st.sidebar.button("📤 ส่งข้อความทดสอบไป T
     else:
         st.sidebar.warning("⚠️ กรุณากรอก Bot Token และ Chat ID ก่อนกดทดสอบ")
 
-# อัปเดตข้อมูลทันทีที่เปิดหน้าเว็บหรือรีเฟรช
-update_all_stoch_rsi()
+# อัปเดตข้อมูลทันทีเมื่อเปิดหน้าเว็บ
+update_all_stoch_rsi(telegram_token, telegram_chat_id)
 
 # แสดงผล Dashboard Metrics ด้านบน
 col1, col2, col3 = st.columns(3)
@@ -238,8 +241,8 @@ with col_btn1:
     if st.button("▶️ Start Bot", use_container_width=True):
         if st.session_state.bot_status != "Running":
             st.session_state.bot_status = "Running"
-            update_all_stoch_rsi()
-            add_log("🚀 XAUUSD Zone Trigger Bot Started...", telegram_token, telegram_chat_id)
+            update_all_stoch_rsi(telegram_token, telegram_chat_id)
+            add_log("🚀 XAUUSD Zone Trigger Bot Started (Auto Alert All Stages)...", telegram_token, telegram_chat_id)
             
             t = threading.Thread(target=run_bot, args=(telegram_token, telegram_chat_id), daemon=True)
             t.start()
@@ -257,7 +260,7 @@ with log_container:
     for log in st.session_state.logs:
         st.text(log)
 
-# รีเฟรชหน้าจออัตโนมัติทุกๆ 10 วินาทีเมื่อบอทกำลังรัน เพื่อดึง State ล่าสุดมาแสดงผลแบบสดๆ
+# รีเฟรชหน้าจออัตโนมัติทุกๆ 10 วินาที
 if st.session_state.bot_status == "Running":
     time.sleep(10)
     st.rerun()
