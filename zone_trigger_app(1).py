@@ -61,8 +61,9 @@ def add_log(message, tg_token="", tg_chat_id=""):
     if len(st.session_state.logs) > 50:
         st.session_state.logs.pop()
     
+    # หากเป็นข้อความแจ้งเตือน (มีอีโมจิพิเศษ) จะส่งเข้า Telegram โดยไม่แนบวัน-เวลา
     if any(emoji in message for emoji in ["📢", "🔥", "🚀", "🛑"]):
-        send_telegram_notification(log_entry, tg_token, tg_chat_id)
+        send_telegram_notification(message, tg_token, tg_chat_id)
 
 def calculate_stochastic_rsi(df, rsi_period=14, stoch_period=14, k_period=3, d_period=3):
     """ คำนวณค่า Stochastic RSI (%K และ %D) """
@@ -193,7 +194,7 @@ def run_bot(tg_token, tg_chat_id):
 # STREAMLIT UI
 # ==========================================
 st.title("🛡️ XAUUSD Zone Trigger Bot Dashboard")
-st.markdown("ระบบเฝ้าระกราฟทองคำอัตโนมัติ 3 Stages พร้อม Stoch RSI, ระบบจำค่า Telegram และส่งแจ้งเตือนอัตโนมัติ")
+st.markdown("ระบบเฝ้าระกราฟทองคำอัตโนมัติ 3 Stages พร้อม Stoch RSI, ระบบจำค่า Telegram และส่งแจ้งเตือน (แบบไม่มีวันเวลา) อัตโนมัติ")
 
 st.sidebar.header("⚙️ Telegram Settings (Session Saved)")
 
@@ -216,7 +217,7 @@ st.sidebar.markdown("---")
 st.sidebar.subheader("🧪 ทดสอบการเชื่อมต่อ")
 if st.sidebar.button("📤 ส่งข้อความทดสอบไป Telegram", use_container_width=True):
     if telegram_token and telegram_chat_id:
-        success = send_telegram_notification("🟢 *ทดสอบการเชื่อมต่อสำเร็จ!* บอทรายงานตัวพร้อมส่งแจ้งเตือนทุก Stage แล้วค่ะ", telegram_token, telegram_chat_id)
+        success = send_telegram_notification("🟢 *ทดสอบการเชื่อมต่อสำเร็จ!* บอทพร้อมส่งแจ้งเตือนทุก Stage แบบไม่มีวันเวลาแล้วค่ะ", telegram_token, telegram_chat_id)
         if success:
             st.sidebar.success("✅ ส่งข้อความสำเร็จ!")
         else:
@@ -262,7 +263,7 @@ with col_btn1:
             if st.session_state.bot_status != "Running":
                 st.session_state.bot_status = "Running"
                 update_all_stoch_rsi(telegram_token, telegram_chat_id)
-                add_log("🚀 XAUUSD Zone Trigger Bot Started (Auto Alert All Stages)...", telegram_token, telegram_chat_id)
+                add_log("🚀 XAUUSD Zone Trigger Bot Started (Clean Alert All Stages)...", telegram_token, telegram_chat_id)
                 
                 t = threading.Thread(target=run_bot, args=(telegram_token, telegram_chat_id), daemon=True)
                 t.start()
