@@ -34,9 +34,12 @@ def send_telegram_notification(message, token, chat_id):
         try:
             url = f"https://api.telegram.org/bot{token}/sendMessage"
             payload = {"chat_id": chat_id, "text": message, "parse_mode": "Markdown"}
-            requests.post(url, json=payload, timeout=10)
+            res = requests.post(url, json=payload, timeout=10)
+            return res.status_code == 200
         except Exception as e:
             print(f"Telegram error: {e}")
+            return False
+    return False
 
 def add_log(message, tg_token="", tg_chat_id=""):
     timestamp = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
@@ -145,12 +148,24 @@ def run_bot(tg_token, tg_chat_id):
 # STREAMLIT UI
 # ==========================================
 st.title("🛡️ XAUUSD Zone Trigger Bot Dashboard")
-st.markdown("ระบบเฝ้าระกราฟทองคำอัตโนมัติ 3 Stages พร้อมระบบส่งแจ้งเตือนเข้า Telegram")
+st.markdown("ระบบเฝ้าระกราฟทองคำอัตโนมัติ 3 Stages พร้อมระบบส่งแจ้งเตือนเข้า Telegram แบบ Real-Time")
 
-# Sidebar สำหรับตั้งค่า Telegram Token & Chat ID
+# Sidebar สำหรับตั้งค่า Telegram และปุ่มทดสอบ
 st.sidebar.header("⚙️ Telegram Settings")
-telegram_token = st.sidebar.text_input("Bot Token", type="password", placeholder="ใส่ Bot Token ที่ได้จาก BotFather")
-telegram_chat_id = st.sidebar.text_input("Chat ID", placeholder="ใส่ Chat ID ของคุณ")
+telegram_token = st.sidebar.text_input("Bot Token", type="password", placeholder="ใส่ Bot Token")
+telegram_chat_id = st.sidebar.text_input("Chat ID", placeholder="ใส่ Chat ID")
+
+st.sidebar.markdown("---")
+st.sidebar.subheader("🧪 ทดสอบการเชื่อมต่อ")
+if st.sidebar.button("📤 ส่งข้อความทดสอบไป Telegram"):
+    if telegram_token and telegram_chat_id:
+        success = send_telegram_notification("🟢 *ทดสอบการเชื่อมต่อสำเร็จ!* บอท XAUUSD พร้อมส่งแจ้งเตือนแล้วค่ะ", telegram_token, telegram_chat_id)
+        if success:
+            st.sidebar.success("✅ ส่งข้อความสำเร็จ! เช็คใน Telegram ได้เลย")
+        else:
+            st.sidebar.error("❌ ส่งไม่ผ่าน กรุณาตรวจสอบ Token และ Chat ID อีกครั้ง")
+    else:
+            st.sidebar.warning("⚠️ กรุณากรอก Bot Token และ Chat ID ก่อนกดทดสอบ")
 
 col1, col2, col3 = st.columns(3)
 with col1:
