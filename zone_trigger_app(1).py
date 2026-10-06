@@ -100,9 +100,8 @@ def run_bot(tg_token, tg_chat_id):
                     k_1h, _ = calculate_stochastic(df_1h)
                     latest_k = float(k_1h.iloc[-1])
                     
-                    # ถ้าสถานะเป็น Stage 2 แต่ Direction ยังเป็น "-" ให้บังคับดึงจาก Log ล่าสุดหรือกำหนดค่าสำรองป้องกันหลุด
-                    if direction == "-" or direction not in ["HIGH", "LOW"]:
-                        # เช็คจาก Log ล่าสุดเพื่อกู้ค่า Direction กลับมาอัตโนมัติ
+                    # เช็คกู้คืนทิศทางจาก Log หากยังเป็นขีด
+                    if st.session_state.target_direction == "-":
                         for log in st.session_state.logs:
                             if "HIGH ZONE" in log:
                                 st.session_state.target_direction = "HIGH"
@@ -175,24 +174,34 @@ if st.sidebar.button("📤 ส่งข้อความทดสอบไป T
     else:
         st.sidebar.warning("⚠️ กรุณากรอก Bot Token และ Chat ID ก่อนกดทดสอบ")
 
-# แสดงสถานะปัจจุบัน (พร้อมระบบกู้คืนค่า Direction อัตโนมัติหากอยู่ Stage 2 แล้วยังเป็น "-")
-display_direction = st.session_state.target_direction
-if st.session_state.current_stage in [2, 3] and display_direction == "-":
-    for log in st.session_state.logs:
-        if "HIGH ZONE" in log:
-            display_direction = "HIGH"
-            break
-        elif "LOW ZONE" in log:
-            display_direction = "LOW"
-            break
+# ใช้ st.empty() เพื่อสร้างพื้นที่แสดงสถานะที่สามารถสั่งอัปเดตสดๆ ได้ทันทีโดยไม่ต้องกดรีเฟรชหน้าจอ
+status_placeholder = st.empty()
 
-col1, col2, col3 = st.columns(3)
-with col1:
-    st.metric("Bot Status", st.session_state.bot_status)
-with col2:
-    st.metric("Current Stage", f"Stage {st.session_state.current_stage}")
-with col3:
-    st.metric("Target Direction", display_direction)
+def render_dashboard_metrics():
+    # ตรวจสอบและดึงทิศทางสำรองจาก Log ถ้าอยู่ใน Stage 2 หรือ 3 แล้วยังเป็น "-"
+    current_dir = st.session_state.target_direction
+    if st.session_state.current_stage in [2, 3] and current_dir == "-":
+        for log in st.session_state.logs:
+            if "HIGH ZONE" in log:
+                current_dir = "HIGH"
+                st.session_state.target_direction = "HIGH"
+                break
+            elif "LOW ZONE" in log:
+                current_dir = "LOW"
+                st.session_state.target_direction = "LOW"
+                break
+
+    with status_placeholder.container():
+        col1, col2, col3 = st.columns(3)
+        with col1:
+            st.metric("Bot Status", st.session_state.bot_status)
+        with col2:
+            st.metric("Current Stage", f"Stage {st.session_state.current_stage}")
+        with col3:
+            st.metric("Target Direction", current_dir)
+
+# แสดงผล Metric ครั้งแรกตอนโหลดหน้าเว็บ
+render_dashboard_metrics()
 
 st.divider()
 
