@@ -1,188 +1,158 @@
 import time
-import requests
+from datetime import datetime
 import pandas as pd
+import numpy as np
 import yfinance as yf
+import streamlit as st
+import threading
 
-# ==================== ตั้งค่าบอตของคุณตรงนี้ ====================
-TELEGRAM_BOT_TOKEN = "ใส่_Bot_Token_ของคุณตรงนี้"
-TELEGRAM_CHAT_ID = "ใส่_Chat_ID_ของคุณตรงนี้"
-CHECK_INTERVAL_SECONDS = 300  # ตรวจสอบทุกๆ 5 นาที (300 วินาที)
-# ===============================================================
+# ==========================================
+# CONFIGURATION & PAGE SETUP
+# ==========================================
+st.set_page_config(
+    page_title="XAUUSD Zone Trigger Bot",
+    page_icon="📈",
+    layout="wide"
+)
 
-# ตัวแปรสำหรับเก็บสถานะปัจจุบันของบอต
-current_stage = 1
-active_direction = None  # จะเป็น "HIGH" หรือ "LOW"
+SYMBOL = "GC=F"  # ใช้ Yahoo Finance Symbol สำหรับทองคำ
 
-def send_telegram(message):
-    if not TELEGRAM_BOT_TOKEN or not TELEGRAM_CHAT_ID:
-        print("⚠️ กรุณากรอก Bot Token และ Chat ID ให้เรียบร้อยก่อน")
-        return False
-    url = f"https://api.telegram.org/bot{TELEGRAM_BOT_TOKEN}/sendMessage"
-    payload = {"chat_id": TELEGRAM_CHAT_ID, "text": message, "parse_mode": "Markdown"}
+# ใช้ st.session_state เพื่อเก็บสถานะของบอทให้คงอยู่ตลอดการรันเบื้องหลัง
+if "bot_status" not in st.session_state:
+    st.session_state.bot_status = "Stopped"
+if "current_stage" not in st.session_state:
+    st.session_state.current_stage = 1
+if "target_direction" not in st.session_state:
+    st.session_state.target_direction = "-"
+if "logs" not in st.session_state:
+    st.session_state.logs = []
+
+def add_log(message):
+    timestamp = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
+    log_entry = f"[{timestamp}] {message}"
+    st.session_state.logs.insert(0, log_entry)
+    # เก็บ Log ไว้สูงสุด 50 รายการล่าสุด
+    if len(st.session_state.logs) > 50:
+        st.session_state.logs.pop()
+
+def calculate_stochastic(df, k_period=14, d_period=3, smooth_k=3):
+    low_min = df['Low'].rolling(window=k_period).min()
+    high_max = df['High'].rolling(window=k_period).max()
+    fast_k = 100 * (df['Close'] - low_min) / (high_max - low_min)
+    slow_k = fast_k.rolling(window=smooth_k).mean()
+    slow_d = slow_k.rolling(window=d_period).mean()
+    return slow_k, slow_d
+
+def fetch_data(period, interval):
     try:
-        res = requests.post(url, json=payload, timeout=10)
-        return res.status_code == 200
+        data = yf.download(SYMBOL, period=period, interval=interval, progress=False)
+        if isinstance(data.columns, pd.MultiIndex):
+            data.columns = data.columns.droplevel(1)
+        return data
     except Exception as e:
-        print(f"Telegram Error: {e}")
-        return False
+        return None
 
-def get_live_market_price():
-    tickers = ["GC=F", "XAUUSD=X"]
-    for t in tickers:
+# ==========================================
+# BACKGROUND BOT WORKER
+# ==========================================
+def run_bot():
+    add_log("🚀 XAUUSD Zone Trigger Bot Started...")
+    st.session_state.bot_status = "Running"
+    
+    while st.session_state.bot_status == "Running":
         try:
-            ticker = yf.Ticker(t)
-            hist = ticker.history(period="1d", interval="1m")
-            if not hist.empty:
-                val = float(hist['Close'].iloc[-1])
-                if val > 1000:
-                    return val
-        except:
-            continue
-    return 4161.00
+            stage = st.session_state.current_stage
+            direction = st.session_state.target_direction
+            
+            if stage == 1:
+                df_4h = fetch_data(period="60d", interval="4h")
+                if df_4h is not None and not df_4h.empty:
+                    k_4h, _ = calculate_stochastic(df_4h)
+                    latest_k = float(k_4h.iloc[-1])
+                    
+                    if latest_k > 55:
+                        add_log(f"📢 [Stage 1] 4H TO HIGH ZONE | Stochastic K = {latest_k:.2f} -> รอสัญญาณ HIGH ZONE STAGE 2")
+                        st.session_state.target_direction = "HIGH"
+                        st.session_state.current_stage = 2
+                    elif latest_k < 45:
+                        add_log(f"📢 [Stage 1] 4H TO LOW ZONE | Stochastic K = {latest_k:.2f} -> รอสัญญาณ LOW ZONE STAGE 2")
+                        st.session_state.target_direction = "LOW"
+                        st.session_state.current_stage = 2
+                        
+            elif stage == 2:
+                df_1h = fetch_data(period="14d", interval="1h")
+                if df_1h is not None and not df_1h.empty:
+                    k_1h, _ = calculate_stochastic(df_1h)
+                    latest_k = float(k_1h.iloc[-1])
+                    
+                    if direction == "HIGH" and latest_k > 85:
+                        add_log(f"📢 [Stage 2] 1H HIGH ZONE | Stochastic K = {latest_k:.2f} -> รอสัญญาณ HIGH ZONE STAGE 3")
+                        st.session_state.current_stage = 3
+                    elif direction == "LOW" and latest_k < 15:
+                        add_log(f"📢 [Stage 2] 1H LOW ZONE | Stochastic K = {latest_k:.2f} -> รอสัญญาณ LOW ZONE STAGE 3")
+                        st.session_state.current_stage = 3
+                        
+            elif stage == 3:
+                df_15m = fetch_data(period="5d", interval="15m")
+                if df_15m is not None and not df_15m.empty:
+                    k_15m, d_15m = calculate_stochastic(df_15m)
+                    latest_k = float(k_15m.iloc[-1])
+                    latest_d = float(d_15m.iloc[-1])
+                    prev_k = float(k_15m.iloc[-2])
+                    prev_d = float(d_15m.iloc[-2])
+                    
+                    is_bullish_cross = (prev_k < prev_d) and (latest_k > latest_d)
+                    is_bearish_cross = (prev_k > prev_d) and (latest_k < latest_d)
+                    
+                    if direction == "HIGH" and latest_k > 80 and is_bearish_cross:
+                        add_log(f"🔥 [Stage 3] 15M HIGH ZONE TRIGGER | K crosses down at {latest_k:.2f} -> ✅ ปิดรอบครบ 3 Stage! เริ่มรอบใหม่ Stage 1")
+                        st.session_state.current_stage = 1
+                        st.session_state.target_direction = "-"
+                    elif direction == "LOW" and latest_k < 20 and is_bullish_cross:
+                        add_log(f"🔥 [Stage 3] 15M LOW ZONE TRIGGER | K crosses up at {latest_k:.2f} -> ✅ ปิดรอบครบ 3 Stage! เริ่มรอบใหม่ Stage 1")
+                        st.session_state.current_stage = 1
+                        st.session_state.target_direction = "-"
+                        
+        except Exception as e:
+            add_log(f"⚠️ Error in loop: {str(e)}")
+            
+        # ตรวจสอบทุกๆ 60 วินาที
+        for _ in range(60):
+            if st.session_state.bot_status != "Running":
+                break
+            time.sleep(1)
 
-def calculate_stochastic(df, period=14, smooth_k=3):
-    df = df.copy()
-    low_min = df['Low'].rolling(window=period).min()
-    high_max = df['High'].rolling(window=period).max()
-    k = 100 * ((df['Close'] - low_min) / (high_max - low_min))
-    k = k.rolling(window=smooth_k).mean()
-    d = k.rolling(window=smooth_k).mean()
-    df['K'] = k
-    df['D'] = d
-    return df.dropna()
+# ==========================================
+# STREAMLIT UI
+# ==========================================
+st.title("🛡️ XAUUSD Zone Trigger Bot Dashboard")
+st.markdown("ระบบเฝ้าระกราฟทองคำอัตโนมัติ 3 Stages (4H -> 1H -> 15M) รันบน Streamlit Cloud")
 
-def check_market_condition():
-    global current_stage, active_direction
-    
-    print(f"\n--- กำลังตรวจสอบตลาดรอบเวลา: {time.strftime('%Y-%m-%d %H:%M:%S')} ---")
-    try:
-        curr_price = get_live_market_price()
+col1, col2, col3 = st.columns(3)
+with col1:
+    st.metric("Bot Status", st.session_state.bot_status)
+with col2:
+    st.metric("Current Stage", f"Stage {st.session_state.current_stage}")
+with col3:
+    st.metric("Target Direction", st.session_state.target_direction)
 
-        ticker = "GC=F"
-        df_raw = yf.download(ticker, period="30d", interval="15m", progress=False)
-        
-        if isinstance(df_raw.columns, pd.MultiIndex):
-            df_raw.columns = df_raw.columns.get_level_values(0)
-        
-        if df_raw.empty or len(df_raw) < 50:
-            ticker = "XAUUSD=X"
-            df_raw = yf.download(ticker, period="30d", interval="15m", progress=False)
-            if isinstance(df_raw.columns, pd.MultiIndex):
-                df_raw.columns = df_raw.columns.get_level_values(0)
+st.divider()
 
-        df_15m = df_raw.dropna()
-        df_1h = df_raw.resample('1h').agg({'Open': 'first', 'High': 'max', 'Low': 'min', 'Close': 'last', 'Volume': 'sum'}).dropna()
-        df_4h = df_raw.resample('4h').agg({'Open': 'first', 'High': 'max', 'Low': 'min', 'Close': 'last', 'Volume': 'sum'}).dropna()
-        
-        if not df_15m.empty:
-            df_15m.iloc[-1, df_15m.columns.get_loc('Close')] = curr_price
-            if curr_price > df_15m.iloc[-1]['High']:
-                df_15m.iloc[-1, df_15m.columns.get_loc('High')] = curr_price
-            if curr_price < df_15m.iloc[-1]['Low']:
-                df_15m.iloc[-1, df_15m.columns.get_loc('Low')] = curr_price
+col_btn1, col_btn2 = st.columns(2)
+with col_btn1:
+    if st.button("▶️ Start Bot", use_container_width=True):
+        if st.session_state.bot_status != "Running":
+            t = threading.Thread(target=run_bot, daemon=True)
+            t.start()
+            st.rerun()
+with col_btn2:
+    if st.button("⏹️ Stop Bot", use_container_width=True):
+        st.session_state.bot_status = "Stopped"
+        add_log("🛑 Bot Stopped by user.")
+        st.rerun()
 
-        df_4h_ind = calculate_stochastic(df_4h)
-        df_1h_ind = calculate_stochastic(df_1h)
-        df_15m_ind = calculate_stochastic(df_15m)
-        
-        curr_4h = df_4h_ind['K'].iloc[-1]
-        curr_1h = df_1h_ind['K'].iloc[-1]
-        
-        curr_15m = df_15m_ind['K'].iloc[-1]
-        prev_15m = df_15m_ind['K'].iloc[-2]
-        curr_d_15m = df_15m_ind['D'].iloc[-1]
-        prev_d_15m = df_15m_ind['D'].iloc[-2]
-        
-        print(f"ราคา: {curr_price:.2f} | Stage: {current_stage} | Direction: {active_direction}")
-        print(f"Stoch -> 4H: {curr_4h:.2f} | 1H: {curr_1h:.2f} | 15M K: {curr_15m:.2f}")
-
-        # --- STAGE 1 ---
-        if current_stage == 1:
-            if curr_4h > 55:
-                current_stage = 2
-                active_direction = "HIGH"
-                msg = (
-                    "🚨 *ZONE TRIGGER // XAUUSD (Auto 24H)*\n"
-                    "🛡️ *[Stage 1]* 4H UP TO HIGH ZONE\n"
-                    f"💰 ราคาตลาด: {curr_price:.2f} | 4H K = {curr_4h:.2f}\n"
-                    "👉 รอสัญญาณโซน HIGH ด่าน 2 (1H K > 85)"
-                )
-                send_telegram(msg)
-                print(">>> ผ่านด่าน 1 ฝั่ง HIGH ส่งแจ้งเตือนแล้ว")
-            elif curr_4h < 45:
-                current_stage = 2
-                active_direction = "LOW"
-                msg = (
-                    "🚨 *ZONE TRIGGER // XAUUSD (Auto 24H)*\n"
-                    "📉 *[Stage 1]* 4H DOWN TO LOW ZONE\n"
-                    f"💰 ราคาตลาด: {curr_price:.2f} | 4H K = {curr_4h:.2f}\n"
-                    "👉 รอสัญญาณโซน LOW ด่าน 2 (1H K < 15)"
-                )
-                send_telegram(msg)
-                print(">>> ผ่านด่าน 1 ฝั่ง LOW ส่งแจ้งเตือนแล้ว")
-        
-        # --- STAGE 2 ---
-        elif current_stage == 2:
-            if active_direction == "HIGH":
-                if curr_1h > 85:
-                    current_stage = 3
-                    msg = (
-                        "🚨 *ZONE TRIGGER // XAUUSD (Auto 24H)*\n"
-                        "⚡ *[Stage 2]* 1H HIGH ZONE\n"
-                        f"💰 ราคาตลาด: {curr_price:.2f} | 1H K = {curr_1h:.2f}\n"
-                        "👉 รอสัญญาณ 15M Cross Above 80 (ด่าน 3)"
-                    )
-                    send_telegram(msg)
-                    print(">>> ผ่านด่าน 2 ฝั่ง HIGH ส่งแจ้งเตือนแล้ว")
-            elif active_direction == "LOW":
-                if curr_1h < 15:
-                    current_stage = 3
-                    msg = (
-                        "🚨 *ZONE TRIGGER // XAUUSD (Auto 24H)*\n"
-                        "⚡ *[Stage 2]* 1H LOW ZONE\n"
-                        f"💰 ราคาตลาด: {curr_price:.2f} | 1H K = {curr_1h:.2f}\n"
-                        "👉 รอสัญญาณ 15M Cross Under 20 (ด่าน 3)"
-                    )
-                    send_telegram(msg)
-                    print(">>> ผ่านด่าน 2 ฝั่ง LOW ส่งแจ้งเตือนแล้ว")
-        
-        # --- STAGE 3 ---
-        elif current_stage == 3:
-            if active_direction == "HIGH":
-                is_cross_above_80 = (curr_15m >= 80) and (prev_15m <= prev_d_15m) and (curr_15m > curr_d_15m)
-                if is_cross_above_80:
-                    msg = (
-                        "🔥 *🚨 ZONE TRIGGER // XAUUSD (Auto 24H)*\n"
-                        "🛑 *[Stage 3]* 15M HIGH ZONE TRIGGER\n"
-                        f"💰 ราคาตลาด: {curr_price:.2f} | 15M K = {curr_15m:.2f}\n"
-                        "🏁 *ปิดรอบสมบูรณ์! เริ่มรอบใหม่รอ Stage 1*"
-                    )
-                    send_telegram(msg)
-                    print(">>> ครบ 3 ด่านฝั่ง HIGH แจ้งเตือนและรีเซ็ตรอบใหม่แล้ว")
-                    current_stage = 1
-                    active_direction = None
-            elif active_direction == "LOW":
-                is_cross_under_20 = (curr_15m <= 20) and (prev_15m >= prev_d_15m) and (curr_15m < curr_d_15m)
-                if is_cross_under_20:
-                    msg = (
-                        "🔥 *🚨 ZONE TRIGGER // XAUUSD (Auto 24H)*\n"
-                        "🛑 *[Stage 3]* 15M LOW ZONE TRIGGER\n"
-                        f"💰 ราคาตลาด: {curr_price:.2f} | 15M K = {curr_15m:.2f}\n"
-                        "🏁 *ปิดรอบสมบูรณ์! เริ่มรอบใหม่รอ Stage 1*"
-                    )
-                    send_telegram(msg)
-                    print(">>> ครบ 3 ด่านฝั่ง LOW แจ้งเตือนและรีเซ็ตรอบใหม่แล้ว")
-                    current_stage = 1
-                    active_direction = None
-
-    except Exception as e:
-        print(f"เกิดข้อผิดพลาดในการรันลูป: {e}")
-
-if __name__ == "__main__":
-    print("🤖 บอต ZONE TRIGGER XAUUSD เริ่มทำงานแบบอัตโนมัติ 24 ชม. แล้ว...")
-    send_telegram("⚡ *Bot Started:* ระบบเรดาร์ 3 ด่าน XAUUSD เริ่มทำงานสแกนอัตโนมัติ 24 ชม. แล้วครับ")
-    
-    while True:
-        check_market_condition()
-        # หน่วงเวลาก่อนเช็กรอบถัดไป (เช่น ทุกๆ 5 นาที)
-        time.sleep(CHECK_INTERVAL_SECONDS)
+st.subheader("📋 Real-Time Activity Logs")
+log_container = st.container(height=400)
+with log_container:
+    for log in st.session_state.logs:
+        st.text(log)
