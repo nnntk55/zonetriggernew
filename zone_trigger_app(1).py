@@ -18,7 +18,7 @@ st.set_page_config(
 
 SYMBOL = "GC=F"  # ใช้ Yahoo Finance Symbol สำหรับทองคำ
 
-# กำหนดค่าเริ่มต้นให้กับ session_state
+# กำหนดค่าเริ่มต้นให้กับ session_state และระบบจำค่า Telegram
 if "bot_status" not in st.session_state:
     st.session_state.bot_status = "Stopped"
 if "current_stage" not in st.session_state:
@@ -27,6 +27,12 @@ if "target_direction" not in st.session_state:
     st.session_state.target_direction = "-"
 if "logs" not in st.session_state:
     st.session_state.logs = []
+
+# ตัวแปรจำค่า Telegram
+if "saved_telegram_token" not in st.session_state:
+    st.session_state.saved_telegram_token = ""
+if "saved_telegram_chat_id" not in st.session_state:
+    st.session_state.saved_telegram_chat_id = ""
 
 if "stoch_rsi_4h" not in st.session_state:
     st.session_state.stoch_rsi_4h = {"k": 0.0, "d": 0.0}
@@ -152,7 +158,7 @@ def update_all_stoch_rsi(tg_token, tg_chat_id):
                     st.session_state.current_stage = 1
                     st.session_state.target_direction = "-"
 
-        # ดึงค่าที่เหลือมาเติมหน้าจอให้ครบถ้วนกรณีอยู่ข้ามสเต็ป
+        # เติมข้อมูล Timeframe ที่เหลือเผื่อไว้แสดงผลหน้าจอ
         if st.session_state.current_stage != 1 and (st.session_state.stoch_rsi_4h["k"] == 0.0):
             df_4h = fetch_data(period="60d", interval="4h")
             if df_4h is not None and not df_4h.empty:
@@ -187,15 +193,28 @@ def run_bot(tg_token, tg_chat_id):
 # STREAMLIT UI
 # ==========================================
 st.title("🛡️ XAUUSD Zone Trigger Bot Dashboard")
-st.markdown("ระบบเฝ้าระกราฟทองคำอัตโนมัติ 3 Stages พร้อม Stoch RSI และระบบแจ้งเตือน Telegram ทุก Stage แบบ Real-Time")
+st.markdown("ระบบเฝ้าระกราฟทองคำอัตโนมัติ 3 Stages พร้อม Stoch RSI, ระบบจำค่า Telegram และส่งแจ้งเตือนอัตโนมัติ")
 
-st.sidebar.header("⚙️ Telegram Settings")
-telegram_token = st.sidebar.text_input("Bot Token", type="password", placeholder="ใส่ Bot Token")
-telegram_chat_id = st.sidebar.text_input("Chat ID", placeholder="ใส่ Chat ID")
+st.sidebar.header("⚙️ Telegram Settings (Session Saved)")
+
+# ฟอร์มรับค่า Telegram พร้อมระบบจำค่าอัตโนมัติ
+with st.sidebar.form("telegram_config_form"):
+    input_token = st.text_input("Bot Token", value=st.session_state.saved_telegram_token, type="password", placeholder="ใส่ Bot Token")
+    input_chat_id = st.text_input("Chat ID", value=st.session_state.saved_telegram_chat_id, placeholder="ใส่ Chat ID")
+    
+    save_button = st.form_submit_button("💾 บันทึกค่า Telegram", use_container_width=True)
+    if save_button:
+        st.session_state.saved_telegram_token = input_token
+        st.session_state.saved_telegram_chat_id = input_chat_id
+        st.sidebar.success("✅ บันทึกค่า Telegram เรียบร้อยแล้ว!")
+
+# ดึงค่าที่จำไว้มาใช้งานต่อ
+telegram_token = st.session_state.saved_telegram_token
+telegram_chat_id = st.session_state.saved_telegram_chat_id
 
 st.sidebar.markdown("---")
 st.sidebar.subheader("🧪 ทดสอบการเชื่อมต่อ")
-if st.sidebar.button("📤 ส่งข้อความทดสอบไป Telegram"):
+if st.sidebar.button("📤 ส่งข้อความทดสอบไป Telegram", use_container_width=True):
     if telegram_token and telegram_chat_id:
         success = send_telegram_notification("🟢 *ทดสอบการเชื่อมต่อสำเร็จ!* บอทรายงานตัวพร้อมส่งแจ้งเตือนทุก Stage แล้วค่ะ", telegram_token, telegram_chat_id)
         if success:
@@ -203,7 +222,7 @@ if st.sidebar.button("📤 ส่งข้อความทดสอบไป T
         else:
             st.sidebar.error("❌ ส่งไม่ผ่าน กรุณาตรวจสอบ Token และ Chat ID")
     else:
-        st.sidebar.warning("⚠️ กรุณากรอก Bot Token และ Chat ID ก่อนกดทดสอบ")
+        st.sidebar.warning("⚠️ กรุณากรอกและบันทึก Bot Token / Chat ID ก่อน")
 
 # อัปเดตข้อมูลทันทีเมื่อเปิดหน้าเว็บ
 update_all_stoch_rsi(telegram_token, telegram_chat_id)
@@ -239,14 +258,17 @@ st.divider()
 col_btn1, col_btn2 = st.columns(2)
 with col_btn1:
     if st.button("▶️ Start Bot", use_container_width=True):
-        if st.session_state.bot_status != "Running":
-            st.session_state.bot_status = "Running"
-            update_all_stoch_rsi(telegram_token, telegram_chat_id)
-            add_log("🚀 XAUUSD Zone Trigger Bot Started (Auto Alert All Stages)...", telegram_token, telegram_chat_id)
-            
-            t = threading.Thread(target=run_bot, args=(telegram_token, telegram_chat_id), daemon=True)
-            t.start()
-            st.rerun()
+        if telegram_token and telegram_chat_id:
+            if st.session_state.bot_status != "Running":
+                st.session_state.bot_status = "Running"
+                update_all_stoch_rsi(telegram_token, telegram_chat_id)
+                add_log("🚀 XAUUSD Zone Trigger Bot Started (Auto Alert All Stages)...", telegram_token, telegram_chat_id)
+                
+                t = threading.Thread(target=run_bot, args=(telegram_token, telegram_chat_id), daemon=True)
+                t.start()
+                st.rerun()
+        else:
+            st.warning("⚠️ กรุณากรอกและบันทึก Bot Token และ Chat ID ในเมนูด้านซ้ายก่อนกด Start Bot ครับ")
 with col_btn2:
     if st.button("⏹️ Stop Bot", use_container_width=True):
         if st.session_state.bot_status == "Running":
