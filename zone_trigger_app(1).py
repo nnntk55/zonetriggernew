@@ -87,12 +87,12 @@ def run_bot(tg_token, tg_chat_id):
                     if latest_k > 55:
                         msg = f"📢 *[Stage 1]*: 4H TO HIGH ZONE\nStochastic K = {latest_k:.2f}\n👉 รอสัญญาณ HIGH ZONE STAGE 2"
                         add_log(msg, tg_token, tg_chat_id)
-                        st.session_state.target_direction = "HIGH"
+                        st.session_state.target_direction = "HIGH"  # ล็อกทิศทางเป็น HIGH ทันที
                         st.session_state.current_stage = 2
                     elif latest_k < 45:
                         msg = f"📢 *[Stage 1]*: 4H TO LOW ZONE\nStochastic K = {latest_k:.2f}\n👉 รอสัญญาณ LOW ZONE STAGE 2"
                         add_log(msg, tg_token, tg_chat_id)
-                        st.session_state.target_direction = "LOW"
+                        st.session_state.target_direction = "LOW"   # ล็อกทิศทางเป็น LOW ทันที
                         st.session_state.current_stage = 2
                         
             elif stage == 2:
@@ -164,7 +164,7 @@ if st.sidebar.button("📤 ส่งข้อความทดสอบไป T
     else:
         st.sidebar.warning("⚠️ กรุณากรอก Bot Token และ Chat ID ก่อนกดทดสอบ")
 
-# แสดงสถานะปัจจุบัน (ดึงจาก session_state ทันทีหลังจาก rerun)
+# แสดงสถานะปัจจุบัน (ดึงจาก session_state)
 col1, col2, col3 = st.columns(3)
 with col1:
     st.metric("Bot Status", st.session_state.bot_status)
@@ -179,15 +179,13 @@ col_btn1, col_btn2 = st.columns(2)
 with col_btn1:
     if st.button("▶️ Start Bot", use_container_width=True):
         if st.session_state.bot_status != "Running":
-            # 1. เปลี่ยนสถานะเป็น Running ทันทีก่อนเรนเดอร์หน้าใหม่
             st.session_state.bot_status = "Running"
             add_log("🚀 XAUUSD Zone Trigger Bot Started...", telegram_token, telegram_chat_id)
             
-            # 2. เปิด Background Thread
+            # เปิด Background Thread
             t = threading.Thread(target=run_bot, args=(telegram_token, telegram_chat_id), daemon=True)
             t.start()
             
-            # 3. สั่งรีเฟรชหน้าจอให้ UI อัปเดตสถานะเป็น Running ทันที
             st.rerun()
 with col_btn2:
     if st.button("⏹️ Stop Bot", use_container_width=True):
