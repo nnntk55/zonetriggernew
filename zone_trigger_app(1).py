@@ -5,6 +5,7 @@ import numpy as np
 import yfinance as yf
 import streamlit as st
 import threading
+import requests
 
 # ==========================================
 # CONFIGURATION & PAGE SETUP
@@ -17,7 +18,7 @@ st.set_page_config(
 
 SYMBOL = "GC=F"  # ใช้ Yahoo Finance Symbol สำหรับทองคำ
 
-# ใช้ st.session_state เพื่อเก็บสถานะของบอทให้คงอยู่ตลอดการรันเบื้องหลัง
+# ใช้ st.session_state เพื่อเก็บสถานะ
 if "bot_status" not in st.session_state:
     st.session_state.bot_status = "Stopped"
 if "current_stage" not in st.session_state:
@@ -27,13 +28,26 @@ if "target_direction" not in st.session_state:
 if "logs" not in st.session_state:
     st.session_state.logs = []
 
-def add_log(message):
+def send_telegram_notification(message, token, chat_id):
+    """ ฟังก์ชันส่งข้อความเข้า Telegram """
+    if token and chat_id:
+        try:
+            url = f"https://api.telegram.org/bot{token}/sendMessage"
+            payload = {"chat_id": chat_id, "text": message, "parse_mode": "Markdown"}
+            requests.post(url, json=payload, timeout=10)
+        except Exception as e:
+            print(f"Telegram error: {e}")
+
+def add_log(message, tg_token="", tg_chat_id=""):
     timestamp = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
     log_entry = f"[{timestamp}] {message}"
     st.session_state.logs.insert(0, log_entry)
-    # เก็บ Log ไว้สูงสุด 50 รายการล่าสุด
     if len(st.session_state.logs) > 50:
         st.session_state.logs.pop()
+    
+    # ส่งเข้า Telegram ทันทีที่มีการ Log ข้อความแจ้งเตือนสำคัญ
+    if "📢" in message or "🔥" in message or "🚀" in message:
+        send_telegram_notification(log_entry, tg_token, tg_chat_id)
 
 def calculate_stochastic(df, k_period=14, d_period=3, smooth_k=3):
     low_min = df['Low'].rolling(window=k_period).min()
@@ -55,8 +69,8 @@ def fetch_data(period, interval):
 # ==========================================
 # BACKGROUND BOT WORKER
 # ==========================================
-def run_bot():
-    add_log("🚀 XAUUSD Zone Trigger Bot Started...")
+def run_bot(tg_token, tg_chat_id):
+    add_log("🚀 XAUUSD Zone Trigger Bot Started...", tg_token, tg_chat_id)
     st.session_state.bot_status = "Running"
     
     while st.session_state.bot_status == "Running":
@@ -71,11 +85,13 @@ def run_bot():
                     latest_k = float(k_4h.iloc[-1])
                     
                     if latest_k > 55:
-                        add_log(f"📢 [Stage 1] 4H TO HIGH ZONE | Stochastic K = {latest_k:.2f} -> รอสัญญาณ HIGH ZONE STAGE 2")
+                        msg = f"📢 *[Stage 1]*: 4H TO HIGH ZONE\nStochastic K = {latest_k:.2f}\n👉 รอสัญญาณ HIGH ZONE STAGE 2"
+                        add_log(msg, tg_token, tg_chat_id)
                         st.session_state.target_direction = "HIGH"
                         st.session_state.current_stage = 2
                     elif latest_k < 45:
-                        add_log(f"📢 [Stage 1] 4H TO LOW ZONE | Stochastic K = {latest_k:.2f} -> รอสัญญาณ LOW ZONE STAGE 2")
+                        msg = f"📢 *[Stage 1]*: 4H TO LOW ZONE\nStochastic K = {latest_k:.2f}\n👉 รอสัญญาณ LOW ZONE STAGE 2"
+                        add_log(msg, tg_token, tg_chat_id)
                         st.session_state.target_direction = "LOW"
                         st.session_state.current_stage = 2
                         
@@ -86,10 +102,12 @@ def run_bot():
                     latest_k = float(k_1h.iloc[-1])
                     
                     if direction == "HIGH" and latest_k > 85:
-                        add_log(f"📢 [Stage 2] 1H HIGH ZONE | Stochastic K = {latest_k:.2f} -> รอสัญญาณ HIGH ZONE STAGE 3")
+                        msg = f"📢 *[Stage 2]*: 1H HIGH ZONE\nStochastic K = {latest_k:.2f}\n👉 รอสัญญาณ HIGH ZONE STAGE 3"
+                        add_log(msg, tg_token, tg_chat_id)
                         st.session_state.current_stage = 3
                     elif direction == "LOW" and latest_k < 15:
-                        add_log(f"📢 [Stage 2] 1H LOW ZONE | Stochastic K = {latest_k:.2f} -> รอสัญญาณ LOW ZONE STAGE 3")
+                        msg = f"📢 *[Stage 2]*: 1H LOW ZONE\nStochastic K = {latest_k:.2f}\n👉 รอสัญญาณ LOW ZONE STAGE 3"
+                        add_log(msg, tg_token, tg_chat_id)
                         st.session_state.current_stage = 3
                         
             elif stage == 3:
@@ -105,18 +123,19 @@ def run_bot():
                     is_bearish_cross = (prev_k > prev_d) and (latest_k < latest_d)
                     
                     if direction == "HIGH" and latest_k > 80 and is_bearish_cross:
-                        add_log(f"🔥 [Stage 3] 15M HIGH ZONE TRIGGER | K crosses down at {latest_k:.2f} -> ✅ ปิดรอบครบ 3 Stage! เริ่มรอบใหม่ Stage 1")
+                        msg = f"🔥 *[Stage 3]*: 15M HIGH ZONE TRIGGER\nK crosses down at {latest_k:.2f}\n✅ ปิดรอบครบ 3 Stage! เริ่มรอบใหม่ Stage 1"
+                        add_log(msg, tg_token, tg_chat_id)
                         st.session_state.current_stage = 1
                         st.session_state.target_direction = "-"
                     elif direction == "LOW" and latest_k < 20 and is_bullish_cross:
-                        add_log(f"🔥 [Stage 3] 15M LOW ZONE TRIGGER | K crosses up at {latest_k:.2f} -> ✅ ปิดรอบครบ 3 Stage! เริ่มรอบใหม่ Stage 1")
+                        msg = f"🔥 *[Stage 3]*: 15M LOW ZONE TRIGGER\nK crosses up at {latest_k:.2f}\n✅ ปิดรอบครบ 3 Stage! เริ่มรอบใหม่ Stage 1"
+                        add_log(msg, tg_token, tg_chat_id)
                         st.session_state.current_stage = 1
                         st.session_state.target_direction = "-"
                         
         except Exception as e:
-            add_log(f"⚠️ Error in loop: {str(e)}")
+            add_log(f"⚠️ Error in loop: {str(e)}", tg_token, tg_chat_id)
             
-        # ตรวจสอบทุกๆ 60 วินาที
         for _ in range(60):
             if st.session_state.bot_status != "Running":
                 break
@@ -126,7 +145,12 @@ def run_bot():
 # STREAMLIT UI
 # ==========================================
 st.title("🛡️ XAUUSD Zone Trigger Bot Dashboard")
-st.markdown("ระบบเฝ้าระกราฟทองคำอัตโนมัติ 3 Stages (4H -> 1H -> 15M) รันบน Streamlit Cloud")
+st.markdown("ระบบเฝ้าระกราฟทองคำอัตโนมัติ 3 Stages พร้อมระบบส่งแจ้งเตือนเข้า Telegram")
+
+# Sidebar สำหรับตั้งค่า Telegram Token & Chat ID
+st.sidebar.header("⚙️ Telegram Settings")
+telegram_token = st.sidebar.text_input("Bot Token", type="password", placeholder="ใส่ Bot Token ที่ได้จาก BotFather")
+telegram_chat_id = st.sidebar.text_input("Chat ID", placeholder="ใส่ Chat ID ของคุณ")
 
 col1, col2, col3 = st.columns(3)
 with col1:
@@ -142,13 +166,13 @@ col_btn1, col_btn2 = st.columns(2)
 with col_btn1:
     if st.button("▶️ Start Bot", use_container_width=True):
         if st.session_state.bot_status != "Running":
-            t = threading.Thread(target=run_bot, daemon=True)
+            t = threading.Thread(target=run_bot, args=(telegram_token, telegram_chat_id), daemon=True)
             t.start()
             st.rerun()
 with col_btn2:
     if st.button("⏹️ Stop Bot", use_container_width=True):
         st.session_state.bot_status = "Stopped"
-        add_log("🛑 Bot Stopped by user.")
+        add_log("🛑 Bot Stopped by user.", telegram_token, telegram_chat_id)
         st.rerun()
 
 st.subheader("📋 Real-Time Activity Logs")
