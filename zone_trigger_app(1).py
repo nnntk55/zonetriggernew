@@ -6,13 +6,16 @@ import yfinance as yf
 
 st.set_page_config(page_title="ZONE TRIGGER // XAUUSD Live Auto", page_icon="⚡", layout="centered")
 
-st.title("⚡ ZONE TRIGGER // XAUUSD Live Radar (Auto-Sync Spot)")
-st.markdown("ระบบสแกนและควบคุมลำดับสัญญาณ 3 ด่าน (4H ➔ 1H ➔ 15M) พร้อมดึงราคาสดอัตโนมัติจากตลาด Spot สากล")
+st.title("⚡ ZONE TRIGGER // XAUUSD Live Radar (Auto-Sync & Offset)")
+st.markdown("ระบบสแกนและควบคุมลำดับสัญญาณ 3 ด่าน พร้อมดึงราคาสดอัตโนมัติและหักลบส่วนต่าง 30$ (ปรับแต่งได้)")
 
 # Sidebar settings
 st.sidebar.header("⚙️ ตั้งค่าระบบ Telegram")
 bot_token = st.sidebar.text_input("Telegram Bot Token", type="password", placeholder="เช่น 123456789:ABCdef...")
 chat_id = st.sidebar.text_input("Telegram Chat ID", placeholder="เช่น 987654321")
+
+st.sidebar.header("🔧 ตั้งค่าส่วนต่างราคา (Offset)")
+price_offset = st.sidebar.number_input("หักลบราคาอัตโนมัติ (- USD)", value=30.0, step=1.0, format="%.1f")
 
 st.sidebar.header("🔄 ควบคุมสถานะระบบ")
 if st.sidebar.button("♻️ รีเซ็ตสถานะกลับไปด่าน 1"):
@@ -40,26 +43,24 @@ def send_telegram(token, chat_id, message):
     except Exception as e:
         return False, str(e)
 
-# ฟังก์ชันดึงราคาสดอัตโนมัติจากตลาด Spot สากล (ผ่าน Binance XAUTUSDT ที่วิ่งตรงกับ Spot Gold)
-def get_live_spot_price():
+# ฟังก์ชันดึงราคาสดอัตโนมัติ และหักลบ Offset (-30$) ทันที
+def get_live_spot_price(offset=30.0):
+    raw_price = 4165.50
     try:
         url = "https://api.binance.com/api/v3/ticker/price?symbol=XAUTUSDT"
         res = requests.get(url, timeout=3)
         if res.status_code == 200:
             data = res.json()
-            return float(data['price'])
+            raw_price = float(data['price'])
     except:
-        pass
-    
-    try:
-        ticker = yf.Ticker("GC=F")
-        hist = ticker.history(period="1d")
-        if not hist.empty:
-            return float(hist['Close'].iloc[-1])
-    except:
-        pass
-        
-    return 4165.50
+        try:
+            ticker = yf.Ticker("GC=F")
+            hist = ticker.history(period="1d")
+            if not hist.empty:
+                raw_price = float(hist['Close'].iloc[-1])
+        except:
+            pass
+    return raw_price - offset
 
 if st.sidebar.button("🧪 ทดสอบส่งข้อความเข้า Telegram"):
     success, msg = send_telegram(bot_token, chat_id, "⚡ *Test Alert* จากระบบ ZONE TRIGGER XAUUSD พร้อมทำงานแล้ว!")
@@ -71,7 +72,7 @@ if st.sidebar.button("🧪 ทดสอบส่งข้อความเข�
 st.markdown("---")
 st.subheader("🎯 สถานะเรดาร์ปัจจุบัน (State Machine)")
 
-live_price_auto = get_live_spot_price()
+live_price_auto = get_live_spot_price(price_offset)
 
 col1, col2, col3 = st.columns(3)
 with col1:
@@ -79,7 +80,7 @@ with col1:
 with col2:
     st.metric("ทิศทางเป้าหมาย", str(st.session_state['active_direction']) if st.session_state['active_direction'] else "รอสัญญาณด่าน 1")
 with col3:
-    st.metric("ราคาสดอัตโนมัติ (Spot)", f"{live_price_auto:.2f} USD")
+    st.metric(f"ราคาสดอัตโนมัติ (-{int(price_offset)}$)", f"{live_price_auto:.2f} USD")
 
 def calculate_stochastic(df, period=14, smooth_k=3):
     df = df.copy()
@@ -94,11 +95,11 @@ def calculate_stochastic(df, period=14, smooth_k=3):
 
 if st.button("🔍 กดสแกนกราฟและเช็กเงื่อนไขเรียลไทม์ (Auto)", type="primary"):
     if not bot_token or not chat_id:
-        st.error("⚠️ กรุณากรอก Telegram Bot Token และ Chat ID ที่ Sidebar ด้านซ้ายก่อนกดสแกน")
+        st.error("⚠️️ กรุณากรอก Telegram Bot Token และ Chat ID ที่ Sidebar ด้านซ้ายก่อนกดสแกน")
     else:
-        with st.spinner("กำลังดึงราคาสดและโครงสร้างแท่งเทียนอัตโนมัติ..."):
+        with st.spinner("กำลังดึงราคาสด หักลบส่วนต่าง และคำนวณแท่งเทียนอัตโนมัติ..."):
             try:
-                current_spot = get_live_spot_price()
+                current_spot = get_live_spot_price(price_offset)
 
                 ticker = "GC=F"
                 df_raw = yf.download(ticker, period="30d", interval="15m", progress=False)
@@ -142,7 +143,7 @@ if st.button("🔍 กดสแกนกราฟและเช็กเงื�
                 curr_d_15m = df_15m_ind['D'].iloc[-1]
                 prev_d_15m = df_15m_ind['D'].iloc[-2]
                 
-                st.success(f"✅ ดึงราคาสดอัตโนมัติสำเร็จ | ราคา Spot: **{curr_price:.2f} USD**")
+                st.success(f"✅ ดึงราคาสดอัตโนมัติสำเร็จ | ราคาปรับลด {price_offset}$: **{curr_price:.2f} USD**")
                 st.write(f"📊 **ค่า Stochastic:** 4H K = **{curr_4h:.2f}** | 1H K = **{curr_1h:.2f}** | 15M K = **{curr_15m:.2f}**")
                 
                 stage = st.session_state["current_stage"]
@@ -156,7 +157,7 @@ if st.button("🔍 กดสแกนกราฟและเช็กเงื�
                         msg = (
                             "🚨 *ZONE TRIGGER // XAUUSD (Auto)*\n"
                             "🛡️ *[Stage 1]* 4H UP TO HIGH ZONE\n"
-                            f"💰 ราคาสด: {curr_price:.2f} | 4H K = {curr_4h:.2f}\n"
+                            f"💰 ราคาปรับลด: {curr_price:.2f} | 4H K = {curr_4h:.2f}\n"
                             "👉 รอสัญญาณโซน HIGH ด่าน 2 (1H K > 85)"
                         )
                         send_telegram(bot_token, chat_id, msg)
@@ -167,7 +168,7 @@ if st.button("🔍 กดสแกนกราฟและเช็กเงื�
                         msg = (
                             "🚨 *ZONE TRIGGER // XAUUSD (Auto)*\n"
                             "📉 *[Stage 1]* 4H DOWN TO LOW ZONE\n"
-                            f"💰 ราคาสด: {curr_price:.2f} | 4H K = {curr_4h:.2f}\n"
+                            f"💰 ราคาปรับลด: {curr_price:.2f} | 4H K = {curr_4h:.2f}\n"
                             "👉 รอสัญญาณโซน LOW ด่าน 2 (1H K < 15)"
                         )
                         send_telegram(bot_token, chat_id, msg)
@@ -183,7 +184,7 @@ if st.button("🔍 กดสแกนกราฟและเช็กเงื�
                             msg = (
                                 "🚨 *ZONE TRIGGER // XAUUSD (Auto)*\n"
                                 "⚡ *[Stage 2]* 1H HIGH ZONE\n"
-                                f"💰 ราคาสด: {curr_price:.2f} | 1H K = {curr_1h:.2f}\n"
+                                f"💰 ราคาปรับลด: {curr_price:.2f} | 1H K = {curr_1h:.2f}\n"
                                 "👉 รอสัญญาณ 15M Cross Above 80 (ด่าน 3)"
                             )
                             send_telegram(bot_token, chat_id, msg)
@@ -196,7 +197,7 @@ if st.button("🔍 กดสแกนกราฟและเช็กเงื�
                             msg = (
                                 "🚨 *ZONE TRIGGER // XAUUSD (Auto)*\n"
                                 "⚡ *[Stage 2]* 1H LOW ZONE\n"
-                                f"💰 ราคาสด: {curr_price:.2f} | 1H K = {curr_1h:.2f}\n"
+                                f"💰 ราคาปรับลด: {curr_price:.2f} | 1H K = {curr_1h:.2f}\n"
                                 "👉 รอสัญญาณ 15M Cross Under 20 (ด่าน 3)"
                             )
                             send_telegram(bot_token, chat_id, msg)
@@ -212,7 +213,7 @@ if st.button("🔍 กดสแกนกราฟและเช็กเงื�
                             msg = (
                                 "🔥 *🚨 ZONE TRIGGER // XAUUSD (Auto)*\n"
                                 "🛑 *[Stage 3]* 15M HIGH ZONE TRIGGER\n"
-                                f"💰 ราคาสด: {curr_price:.2f} | 15M K = {curr_15m:.2f}\n"
+                                f"💰 ราคาปรับลด: {curr_price:.2f} | 15M K = {curr_15m:.2f}\n"
                                 "🏁 *ปิดรอบสมบูรณ์! เริ่มรอบใหม่รอ Stage 1*"
                             )
                             send_telegram(bot_token, chat_id, msg)
@@ -227,7 +228,7 @@ if st.button("🔍 กดสแกนกราฟและเช็กเงื�
                             msg = (
                                 "🔥 *🚨 ZONE TRIGGER // XAUUSD (Auto)*\n"
                                 "🛑 *[Stage 3]* 15M LOW ZONE TRIGGER\n"
-                                f"💰 ราคาสด: {curr_price:.2f} | 15M K = {curr_15m:.2f}\n"
+                                f"💰 ราคาปรับลด: {curr_price:.2f} | 15M K = {curr_15m:.2f}\n"
                                 "🏁 *ปิดรอบสมบูรณ์! เริ่มรอบใหม่รอ Stage 1*"
                             )
                             send_telegram(bot_token, chat_id, msg)
@@ -241,4 +242,4 @@ if st.button("🔍 กดสแกนกราฟและเช็กเงื�
                 st.error(f"เกิดข้อผิดพลาดในการดึงข้อมูล: {e}")
 
 st.markdown("---")
-st.markdown("💡 **สถานะ:** อัปเดตคำศัพท์เป็น HIGH / LOW เรียบร้อยแล้ว พร้อมดึงราคาสดอัตโนมัติ")
+st.markdown("💡 **สถานะ:** ดึงราคาสดอัตโนมัติและหักลบ 30$ ให้เรียบร้อย พร้อมแจ้งเตือนเข้า Telegram ทันทีเมื่อครบเงื่อนไข")
