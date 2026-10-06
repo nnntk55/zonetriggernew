@@ -123,9 +123,9 @@ if st.button("🔍 กดสแกนกราฟและเช็กเงื�
                         st.session_state["active_direction"] = "SELL"
                         msg = (
                             "🚨 *ZONE TRIGGER // XAUUSD*\n"
-                            "🛡️ *[Stage 1]* 4H UP TO SELL ZONE\n"
+                            "🛡️ *[Stage 1]* 4H UP TO HIGH ZONE\n"
                             f"💰 ราคา: {curr_price:.2f} | 4H K = {curr_4h:.2f}\n"
-                            "👉 รอสัญญาณโซน SELL ด่าน 2 (1H K > 85)"
+                            "👉 รอสัญญาณโซน HIGH (1H K > 85)"
                         )
                         send_telegram(bot_token, chat_id, msg)
                         st.info("🎯 ผ่านด่าน 1 ฝั่ง SELL สำเร็จ! ระบบเลื่อนไปรอสัญญาณ 1H โซน SELL")
@@ -134,9 +134,9 @@ if st.button("🔍 กดสแกนกราฟและเช็กเงื�
                         st.session_state["active_direction"] = "BUY"
                         msg = (
                             "🚨 *ZONE TRIGGER // XAUUSD*\n"
-                            "📉 *[Stage 1]* 4H DOWN TO BUY ZONE\n"
+                            "📉 *[Stage 1]* 4H DOWN TO LOW ZONE\n"
                             f"💰 ราคา: {curr_price:.2f} | 4H K = {curr_4h:.2f}\n"
-                            "👉 รอสัญญาณโซน BUY ด่าน 2 (1H K < 15)"
+                            "👉 รอสัญญาณโซน LOW (1H K < 15)"
                         )
                         send_telegram(bot_token, chat_id, msg)
                         st.info("🎯 ผ่านด่าน 1 ฝั่ง BUY สำเร็จ! ระบบเลื่อนไปรอสัญญาณ 1H โซน BUY")
@@ -150,9 +150,9 @@ if st.button("🔍 กดสแกนกราฟและเช็กเงื�
                             st.session_state["current_stage"] = 3
                             msg = (
                                 "🚨 *ZONE TRIGGER // XAUUSD*\n"
-                                "⚡ *[Stage 2]* 1H SELL ZONE\n"
+                                "⚡ *[Stage 2]* 1H HIGH ZONE\n"
                                 f"💰 ราคา: {curr_price:.2f} | 1H K = {curr_1h:.2f}\n"
-                                "👉 รอสัญญาณ 15M Cross Above 80 (ด่าน 3)"
+                                "👉 รอสัญญาณ 15M STOCH CROSSED > 80"
                             )
                             send_telegram(bot_token, chat_id, msg)
                             st.info("🎯 ผ่านด่าน 2 ฝั่ง SELL สำเร็จ! ระบบเลื่อนไปรอสัญญาณด่าน 3 (15M)")
@@ -163,9 +163,9 @@ if st.button("🔍 กดสแกนกราฟและเช็กเงื�
                             st.session_state["current_stage"] = 3
                             msg = (
                                 "🚨 *ZONE TRIGGER // XAUUSD*\n"
-                                "⚡ *[Stage 2]* 1H BUY ZONE\n"
+                                "⚡ *[Stage 2]* 1H LOW ZONE\n"
                                 f"💰 ราคา: {curr_price:.2f} | 1H K = {curr_1h:.2f}\n"
-                                "👉 รอสัญญาณ 15M Cross Under 20 (ด่าน 3)"
+                                "👉 รอสัญญาณ 15M STOCH CROSSED < 20"
                             )
                             send_telegram(bot_token, chat_id, msg)
                             st.info("🎯 ผ่านด่าน 2 ฝั่ง BUY สำเร็จ! ระบบเลื่อนไปรอสัญญาณด่าน 3 (15M)")
@@ -179,7 +179,7 @@ if st.button("🔍 กดสแกนกราฟและเช็กเงื�
                         if is_cross_above_80:
                             msg = (
                                 "🔥 *🚨 ZONE TRIGGER // XAUUSD*\n"
-                                "🛑 *[Stage 3]* 15M SELL ZONE TRIGGER\n"
+                                "🛑 *[Stage 3]* 15M HIGH ZONE TRIGGER\n"
                                 f"💰 ราคาปิด: {curr_price:.2f} | 15M K = {curr_15m:.2f}\n"
                                 "🏁 *ปิดรอบสมบูรณ์! เริ่มรอบใหม่รอ Stage 1*"
                             )
@@ -194,7 +194,7 @@ if st.button("🔍 กดสแกนกราฟและเช็กเงื�
                         if is_cross_under_20:
                             msg = (
                                 "🔥 *🚨 ZONE TRIGGER // XAUUSD*\n"
-                                "🛑 *[Stage 3]* 15M BUY ZONE TRIGGER\n"
+                                "🛑 *[Stage 3]* 15M LOW ZONE TRIGGER\n"
                                 f"💰 ราคาปิด: {curr_price:.2f} | 15M K = {curr_15m:.2f}\n"
                                 "🏁 *ปิดรอบสมบูรณ์! เริ่มรอบใหม่รอ Stage 1*"
                             )
