@@ -28,13 +28,12 @@ if "target_direction" not in st.session_state:
 if "logs" not in st.session_state:
     st.session_state.logs = []
 
-# เก็บค่าสถานะ Stochastic RSI ล่าสุดสำหรับแสดงผลบน UI
 if "stoch_rsi_4h" not in st.session_state:
-    st.session_state.stoch_rsi_4h = {"k": 0.0, "d": 0.0, "status": "Waiting"}
+    st.session_state.stoch_rsi_4h = {"k": 0.0, "d": 0.0}
 if "stoch_rsi_1h" not in st.session_state:
-    st.session_state.stoch_rsi_1h = {"k": 0.0, "d": 0.0, "status": "Waiting"}
+    st.session_state.stoch_rsi_1h = {"k": 0.0, "d": 0.0}
 if "stoch_rsi_15m" not in st.session_state:
-    st.session_state.stoch_rsi_15m = {"k": 0.0, "d": 0.0, "status": "Waiting"}
+    st.session_state.stoch_rsi_15m = {"k": 0.0, "d": 0.0}
 
 def send_telegram_notification(message, token, chat_id):
     """ ฟังก์ชันส่งข้อความเข้า Telegram """
@@ -84,50 +83,63 @@ def fetch_data(period, interval):
     except Exception as e:
         return None
 
+def update_all_stoch_rsi():
+    """ ฟังก์ชันช่วยดึงและคำนวณค่า Stoch RSI ของทุก Timeframe เพื่ออัปเดตหน้าจอ """
+    try:
+        # 4H
+        df_4h = fetch_data(period="60d", interval="4h")
+        if df_4h is not None and not df_4h.empty:
+            k_4h, d_4h = calculate_stochastic_rsi(df_4h)
+            st.session_state.stoch_rsi_4h = {"k": float(k_4h.iloc[-1]), "d": float(d_4h.iloc[-1])}
+        
+        # 1H
+        df_1h = fetch_data(period="14d", interval="1h")
+        if df_1h is not None and not df_1h.empty:
+            k_1h, d_1h = calculate_stochastic_rsi(df_1h)
+            st.session_state.stoch_rsi_1h = {"k": float(k_1h.iloc[-1]), "d": float(d_1h.iloc[-1])}
+            
+        # 15M
+        df_15m = fetch_data(period="5d", interval="15m")
+        if df_15m is not None and not df_15m.empty:
+            k_15m, d_15m = calculate_stochastic_rsi(df_15m)
+            st.session_state.stoch_rsi_15m = {"k": float(k_15m.iloc[-1]), "d": float(d_15m.iloc[-1])}
+    except Exception as e:
+        pass
+
 # ==========================================
 # BACKGROUND BOT WORKER
 # ==========================================
 def run_bot(tg_token, tg_chat_id):
     while st.session_state.bot_status == "Running":
         try:
+            update_all_stoch_rsi() # อัปเดตค่าทุกรอบการทำงาน
+            
             stage = st.session_state.current_stage
             direction = st.session_state.target_direction
             
             if stage == 1:
-                df_4h = fetch_data(period="60d", interval="4h")
-                if df_4h is not None and not df_4h.empty:
-                    k_4h, d_4h = calculate_stochastic_rsi(df_4h)
-                    latest_k = float(k_4h.iloc[-1])
-                    latest_d = float(d_4h.iloc[-1])
-                    st.session_state.stoch_rsi_4h = {"k": latest_k, "d": latest_d, "status": f"K: {latest_k:.2f}"}
-                    
-                    if latest_k > 55:
-                        msg = f"📢 *[Stage 1]*: 4H Stoch RSI TO HIGH ZONE\nK = {latest_k:.2f}\n👉 รอสัญญาณ HIGH ZONE STAGE 2"
-                        add_log(msg, tg_token, tg_chat_id)
-                        st.session_state.target_direction = "HIGH"
-                        st.session_state.current_stage = 2
-                    elif latest_k < 45:
-                        msg = f"📢 *[Stage 1]*: 4H Stoch RSI TO LOW ZONE\nK = {latest_k:.2f}\n👉 รอสัญญาณ LOW ZONE STAGE 2"
-                        add_log(msg, tg_token, tg_chat_id)
-                        st.session_state.target_direction = "LOW"
-                        st.session_state.current_stage = 2
+                k_4h_val = st.session_state.stoch_rsi_4h["k"]
+                if k_4h_val > 55:
+                    msg = f"📢 *[Stage 1]*: 4H Stoch RSI TO HIGH ZONE\nK = {k_4h_val:.2f}\n👉 รอสัญญาณ HIGH ZONE STAGE 2"
+                    add_log(msg, tg_token, tg_chat_id)
+                    st.session_state.target_direction = "HIGH"
+                    st.session_state.current_stage = 2
+                elif k_4h_val < 45:
+                    msg = f"📢 *[Stage 1]*: 4H Stoch RSI TO LOW ZONE\nK = {k_4h_val:.2f}\n👉 รอสัญญาณ LOW ZONE STAGE 2"
+                    add_log(msg, tg_token, tg_chat_id)
+                    st.session_state.target_direction = "LOW"
+                    st.session_state.current_stage = 2
                         
             elif stage == 2:
-                df_1h = fetch_data(period="14d", interval="1h")
-                if df_1h is not None and not df_1h.empty:
-                    k_1h, d_1h = calculate_stochastic_rsi(df_1h)
-                    latest_k = float(k_1h.iloc[-1])
-                    latest_d = float(d_1h.iloc[-1])
-                    st.session_state.stoch_rsi_1h = {"k": latest_k, "d": latest_d, "status": f"K: {latest_k:.2f}"}
-                    
-                    if direction == "HIGH" and latest_k > 80:
-                        msg = f"📢 *[Stage 2]*: 1H Stoch RSI HIGH ZONE\nK = {latest_k:.2f}\n👉 รอสัญญาณ HIGH ZONE STAGE 3"
-                        add_log(msg, tg_token, tg_chat_id)
-                        st.session_state.current_stage = 3
-                    elif direction == "LOW" and latest_k < 20:
-                        msg = f"📢 *[Stage 2]*: 1H Stoch RSI LOW ZONE\nK = {latest_k:.2f}\n👉 รอสัญญาณ LOW ZONE STAGE 3"
-                        add_log(msg, tg_token, tg_chat_id)
-                        st.session_state.current_stage = 3
+                k_1h_val = st.session_state.stoch_rsi_1h["k"]
+                if direction == "HIGH" and k_1h_val > 80:
+                    msg = f"📢 *[Stage 2]*: 1H Stoch RSI HIGH ZONE\nK = {k_1h_val:.2f}\n👉 รอสัญญาณ HIGH ZONE STAGE 3"
+                    add_log(msg, tg_token, tg_chat_id)
+                    st.session_state.current_stage = 3
+                elif direction == "LOW" and k_1h_val < 20:
+                    msg = f"📢 *[Stage 2]*: 1H Stoch RSI LOW ZONE\nK = {k_1h_val:.2f}\n👉 รอสัญญาณ LOW ZONE STAGE 3"
+                    add_log(msg, tg_token, tg_chat_id)
+                    st.session_state.current_stage = 3
                         
             elif stage == 3:
                 df_15m = fetch_data(period="5d", interval="15m")
@@ -137,7 +149,6 @@ def run_bot(tg_token, tg_chat_id):
                     latest_d = float(d_15m.iloc[-1])
                     prev_k = float(k_15m.iloc[-2])
                     prev_d = float(d_15m.iloc[-2])
-                    st.session_state.stoch_rsi_15m = {"k": latest_k, "d": latest_d, "status": f"K: {latest_k:.2f}"}
                     
                     is_bullish_cross = (prev_k < prev_d) and (latest_k > latest_d)
                     is_bearish_cross = (prev_k > prev_d) and (latest_k < latest_d)
@@ -183,6 +194,10 @@ if st.sidebar.button("📤 ส่งข้อความทดสอบไป T
     else:
         st.sidebar.warning("⚠️ กรุณากรอก Bot Token และ Chat ID ก่อนกดทดสอบ")
 
+# โหลดค่า Stoch RSI มารอไว้ทันทีตั้งแต่เปิดหน้าเว็บครั้งแรก
+if st.session_state.stoch_rsi_4h["k"] == 0.0:
+    update_all_stoch_rsi()
+
 status_placeholder = st.empty()
 
 def render_dashboard_metrics():
@@ -197,7 +212,7 @@ def render_dashboard_metrics():
 
 render_dashboard_metrics()
 
-# 👉 เพิ่มส่วนแสดงค่า Stochastic RSI ในแต่ละ Timeframe
+# แสดงผลค่า Stochastic RSI ในแต่ละ Timeframe
 st.markdown("---")
 st.subheader("📊 Stochastic RSI Status by Timeframe")
 tf_col1, tf_col2, tf_col3 = st.columns(3)
@@ -224,6 +239,7 @@ with col_btn1:
             st.session_state.current_stage = 1
             st.session_state.target_direction = "-"
             
+            update_all_stoch_rsi() # ดึงค่าล่าสุดมาก่อนเริ่มรัน
             add_log("🚀 XAUUSD Zone Trigger Bot Started...", telegram_token, telegram_chat_id)
             
             t = threading.Thread(target=run_bot, args=(telegram_token, telegram_chat_id), daemon=True)
