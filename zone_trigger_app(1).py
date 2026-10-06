@@ -16,8 +16,9 @@ st.set_page_config(
     layout="wide"
 )
 
-SYMBOL = "GC=F"
+SYMBOL = "GC=F"  # ใช้ Yahoo Finance Symbol สำหรับทองคำ
 
+# กำหนดค่าเริ่มต้นให้กับ session_state
 if "bot_status" not in st.session_state:
     st.session_state.bot_status = "Stopped"
 if "current_stage" not in st.session_state:
@@ -35,6 +36,7 @@ if "stoch_rsi_15m" not in st.session_state:
     st.session_state.stoch_rsi_15m = {"k": 0.0, "d": 0.0}
 
 def send_telegram_notification(message, token, chat_id):
+    """ ฟังก์ชันส่งข้อความเข้า Telegram """
     if token and chat_id:
         try:
             url = f"https://api.telegram.org/bot{token}/sendMessage"
@@ -42,6 +44,7 @@ def send_telegram_notification(message, token, chat_id):
             res = requests.post(url, json=payload, timeout=10)
             return res.status_code == 200
         except Exception as e:
+            print(f"Telegram error: {e}")
             return False
     return False
 
@@ -56,6 +59,7 @@ def add_log(message, tg_token="", tg_chat_id=""):
         send_telegram_notification(log_entry, tg_token, tg_chat_id)
 
 def calculate_stochastic_rsi(df, rsi_period=14, stoch_period=14, k_period=3, d_period=3):
+    """ คำนวณค่า Stochastic RSI (%K และ %D) """
     delta = df['Close'].diff()
     gain = (delta.where(delta > 0, 0)).rolling(window=rsi_period).mean()
     loss = (-delta.where(delta < 0, 0)).rolling(window=rsi_period).mean()
@@ -80,7 +84,7 @@ def fetch_data(period, interval):
         return None
 
 def update_all_stoch_rsi():
-    """ ดึงข้อมูลและอัปเดตค่าตัวเลขบนหน้าจอเท่านั้น (ไม่เปลี่ยน Stage เอง) """
+    """ ดึงข้อมูลและคำนวณค่า Stoch RSI ของทุก Timeframe สำหรับแสดงผลบนหน้าจอ """
     try:
         df_4h = fetch_data(period="60d", interval="4h")
         if df_4h is not None and not df_4h.empty:
@@ -100,14 +104,16 @@ def update_all_stoch_rsi():
         pass
 
 # ==========================================
-# BACKGROUND BOT WORKER (ทำงานตามลำดับ Stage ทีละขั้น)
+# BACKGROUND BOT WORKER
 # ==========================================
 def run_bot(tg_token, tg_chat_id):
     while st.session_state.bot_status == "Running":
         try:
             update_all_stoch_rsi()
             stage = st.session_state.current_stage
+            direction = st.session_state.target_direction
             
+            # --- STAGE 1: รอ 4H เข้าโซน ---
             if stage == 1:
                 k_4h_val = st.session_state.stoch_rsi_4h["k"]
                 if k_4h_val > 55:
@@ -120,11 +126,10 @@ def run_bot(tg_token, tg_chat_id):
                     msg = f"📢 *[Stage 1 ผ่านแล้ว]*: 4H Stoch RSI (%%K = {k_4h_val:.2f}) เข้าโซน LOW 📉\n👉 ย้ายเข้าสู่ Stage 2 (รอ 1H คอนเฟิร์มโซน)"
                     add_log(msg, tg_token, tg_chat_id)
                     st.session_state.current_stage = 2
-                        
+            
+            # --- STAGE 2: รอ 1H คอนเฟิร์มโซน ---
             elif stage == 2:
                 k_1h_val = st.session_state.stoch_rsi_1h["k"]
-                direction = st.session_state.target_direction
-                
                 if direction == "HIGH" and k_1h_val > 80:
                     msg = f"📢 *[Stage 2 ผ่านแล้ว]*: 1H Stoch RSI (%%K = {k_1h_val:.2f}) ขึ้นแตะ High Zone สำเร็จ 🚀\n👉 ย้ายเข้าสู่ Stage 3 (รอสัญญาณตัดกันใน 15M)"
                     add_log(msg, tg_token, tg_chat_id)
@@ -134,6 +139,7 @@ def run_bot(tg_token, tg_chat_id):
                     add_log(msg, tg_token, tg_chat_id)
                     st.session_state.current_stage = 3
                         
+            # --- STAGE 3: รอสัญญาณตัดกันใน 15M ---
             elif stage == 3:
                 df_15m = fetch_data(period="5d", interval="15m")
                 if df_15m is not None and not df_15m.empty:
@@ -143,7 +149,6 @@ def run_bot(tg_token, tg_chat_id):
                     prev_k = float(k_15m.iloc[-2])
                     prev_d = float(d_15m.iloc[-2])
                     
-                    direction = st.session_state.target_direction
                     is_bullish_cross = (prev_k < prev_d) and (latest_k > latest_d)
                     is_bearish_cross = (prev_k > prev_d) and (latest_k < latest_d)
                     
@@ -159,9 +164,9 @@ def run_bot(tg_token, tg_chat_id):
                         st.session_state.target_direction = "-"
                         
         except Exception as e:
-            add_log(f"⚠️ Error: {str(e)}", tg_token, tg_chat_id)
+            add_log(f"⚠️ Error in loop: {str(e)}", tg_token, tg_chat_id)
             
-        for _ in range(30): # เว้นช่วงเช็กทุก 30 วินาที
+        for _ in range(15):  # เช็กและอัปเดตทุกๆ 15 วินาที
             if st.session_state.bot_status != "Running":
                 break
             time.sleep(1)
@@ -175,6 +180,18 @@ st.markdown("ระบบเฝ้าระกราฟทองคำอัต�
 st.sidebar.header("⚙️ Telegram Settings")
 telegram_token = st.sidebar.text_input("Bot Token", type="password", placeholder="ใส่ Bot Token")
 telegram_chat_id = st.sidebar.text_input("Chat ID", placeholder="ใส่ Chat ID")
+
+st.sidebar.markdown("---")
+st.sidebar.subheader("🧪 ทดสอบการเชื่อมต่อ")
+if st.sidebar.button("📤 ส่งข้อความทดสอบไป Telegram"):
+    if telegram_token and telegram_chat_id:
+        success = send_telegram_notification("🟢 *ทดสอบการเชื่อมต่อสำเร็จ!* บอทพร้อมส่งแจ้งเตือนแล้วค่ะ", telegram_token, telegram_chat_id)
+        if success:
+            st.sidebar.success("✅ ส่งข้อความสำเร็จ!")
+        else:
+            st.sidebar.error("❌ ส่งไม่ผ่าน กรุณาตรวจสอบ Token และ Chat ID")
+    else:
+        st.sidebar.warning("⚠️ กรุณากรอก Bot Token และ Chat ID ก่อนกดทดสอบ")
 
 update_all_stoch_rsi()
 
@@ -212,7 +229,7 @@ with col_btn1:
             st.session_state.current_stage = 1
             st.session_state.target_direction = "-"
             update_all_stoch_rsi()
-            add_log("🚀 XAUUSD Zone Trigger Bot Started (Clean Alert All Stages)...", telegram_token, telegram_chat_id)
+            add_log("🚀 XAUUSD Zone Trigger Bot Started...", telegram_token, telegram_chat_id)
             
             t = threading.Thread(target=run_bot, args=(telegram_token, telegram_chat_id), daemon=True)
             t.start()
