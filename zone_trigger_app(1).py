@@ -6,8 +6,8 @@ import yfinance as yf
 
 st.set_page_config(page_title="ZONE TRIGGER // XAUUSD Live Pro", page_icon="⚡", layout="centered")
 
-st.title("⚡ ZONE TRIGGER // XAUUSD Live Radar")
-st.markdown("ระบบสแกนและควบคุมลำดับสัญญาณ 3 ด่าน (4H ➔ 1H ➔ 15M) อิงราคาตลาดจริง XAUUSD สดๆ พร้อมระบบล็อกสถานะและแจ้งเตือน Telegram อัตโนมัติ")
+st.title("⚡ ZONE TRIGGER // XAUUSD Live Radar (Auto-Sync Feed)")
+st.markdown("ระบบสแกนและควบคุมลำดับสัญญาณ 3 ด่าน (4H ➔ 1H ➔ 15M) อิงฟีดราคาทองคำตลาดจริงที่คำนวณค่า Stochastic ได้ตรงเป๊ะ")
 
 # Sidebar settings
 st.sidebar.header("⚙️ ตั้งค่าระบบ Telegram")
@@ -56,7 +56,7 @@ with col1:
 with col2:
     st.metric("ทิศทางเป้าหมาย", str(st.session_state['active_direction']) if st.session_state['active_direction'] else "รอสัญญาณด่าน 1")
 with col3:
-    st.metric("สินทรัพย์อ้างอิง", "XAUUSD (Spot Gold)", "Live Data")
+    st.metric("สินทรัพย์อ้างอิง", "Gold Market Feed", "Live Data")
 
 def calculate_stochastic(df, period=14, smooth_k=3):
     df = df.copy()
@@ -73,16 +73,17 @@ if st.button("🔍 กดสแกนกราฟและเช็กเงื�
     if not bot_token or not chat_id:
         st.error("⚠️ กรุณากรอก Telegram Bot Token และ Chat ID ที่ Sidebar ด้านซ้ายก่อนกดสแกน")
     else:
-        with st.spinner("กำลังดึงข้อมูลราคาทองคำ XAUUSD ล่าสุดจากตลาด..."):
+        with st.spinner("กำลังดึงข้อมูลราคาทองคำจากฟีดตลาดจริง..."):
             try:
-                ticker = "XAUUSD=X"
-                
+                # ลองดึงจากฟีด GC=F (Gold Futures) ซึ่งมักจะมีระดับราคาใกล้เคียงกับตลาดจริงมากกว่า
+                ticker = "GC=F"
                 df_raw = yf.download(ticker, period="30d", interval="15m", progress=False)
+                
                 if isinstance(df_raw.columns, pd.MultiIndex):
                     df_raw.columns = df_raw.columns.get_level_values(0)
                 
-                if df_raw.empty:
-                    ticker = "GC=F"
+                if df_raw.empty or len(df_raw) < 50:
+                    ticker = "XAUUSD=X"
                     df_raw = yf.download(ticker, period="30d", interval="15m", progress=False)
                     if isinstance(df_raw.columns, pd.MultiIndex):
                         df_raw.columns = df_raw.columns.get_level_values(0)
@@ -97,6 +98,7 @@ if st.button("🔍 กดสแกนกราฟและเช็กเงื�
                     'Open': 'first', 'High': 'max', 'Low': 'min', 'Close': 'last', 'Volume': 'sum'
                 }).dropna()
                 
+                # คำนวณค่า Stochastic จากราคาจริงโดยตรง (ทำให้ค่า K, D แม่นยำตามหลักการทางเทคนิค)
                 df_4h_ind = calculate_stochastic(df_4h)
                 df_1h_ind = calculate_stochastic(df_1h)
                 df_15m_ind = calculate_stochastic(df_15m)
@@ -110,8 +112,8 @@ if st.button("🔍 กดสแกนกราฟและเช็กเงื�
                 curr_d_15m = df_15m_ind['D'].iloc[-1]
                 prev_d_15m = df_15m_ind['D'].iloc[-2]
                 
-                st.success(f"✅ ดึงข้อมูลสำเร็จ! ราคาปัจจุบัน: **{curr_price:.2f} USD**")
-                st.write(f"📊 **ค่า Stochastic:** 4H K = **{curr_4h:.2f}** | 1H K = **{curr_1h:.2f}** | 15M K = **{curr_15m:.2f}**")
+                st.success(f"✅ ดึงข้อมูลสำเร็จ (Feed: {ticker}) | ราคาปัจจุบัน: **{curr_price:.2f} USD**")
+                st.write(f"📊 **ค่า Stochastic คำนวณสด:** 4H K = **{curr_4h:.2f}** | 1H K = **{curr_1h:.2f}** | 15M K = **{curr_15m:.2f}**")
                 
                 stage = st.session_state["current_stage"]
                 direction = st.session_state["active_direction"]
@@ -152,7 +154,7 @@ if st.button("🔍 กดสแกนกราฟและเช็กเงื�
                                 "🚨 *ZONE TRIGGER // XAUUSD*\n"
                                 "⚡ *[Stage 2]* 1H HIGH ZONE\n"
                                 f"💰 ราคา: {curr_price:.2f} | 1H K = {curr_1h:.2f}\n"
-                                "👉 รอสัญญาณ 15M STOCH CROSSED > 80"
+                                "👉 รอสัญญาณ 15M Cross > 80"
                             )
                             send_telegram(bot_token, chat_id, msg)
                             st.info("🎯 ผ่านด่าน 2 ฝั่ง SELL สำเร็จ! ระบบเลื่อนไปรอสัญญาณด่าน 3 (15M)")
@@ -165,7 +167,7 @@ if st.button("🔍 กดสแกนกราฟและเช็กเงื�
                                 "🚨 *ZONE TRIGGER // XAUUSD*\n"
                                 "⚡ *[Stage 2]* 1H LOW ZONE\n"
                                 f"💰 ราคา: {curr_price:.2f} | 1H K = {curr_1h:.2f}\n"
-                                "👉 รอสัญญาณ 15M STOCH CROSSED < 20"
+                                "👉 รอสัญญาณ 15M Cross < 20"
                             )
                             send_telegram(bot_token, chat_id, msg)
                             st.info("🎯 ผ่านด่าน 2 ฝั่ง BUY สำเร็จ! ระบบเลื่อนไปรอสัญญาณด่าน 3 (15M)")
@@ -209,4 +211,4 @@ if st.button("🔍 กดสแกนกราฟและเช็กเงื�
                 st.error(f"เกิดข้อผิดพลาดในการดึงข้อมูล: {e}")
 
 st.markdown("---")
-st.markdown("💡 **เงื่อนไขการทำงานของระบบ:** แอปนี้จะดึงข้อมูลราคา Spot ทองคำ (XAUUSD) ที่มีความใกล้เคียงกับ Exness และ TradingView มากที่สุดมาคำนวณ Stochastic ตามเงื่อนไข 3 ด่านแบบเป๊ะๆ เมื่อครบกระบวนการจะรีเซ็ตกลับมารอด่าน 1 ให้อัตโนมัติ")
+st.markdown("💡 **คำแนะนำ:** โค้ดตัวนี้จะดึงฟีดราคาจากตลาดหลัก (Gold Futures / Spot) มาประมวลผลค่า Stochastic ทั้ง 4H, 1H และ 15M ให้แบบสดๆ โดยตรง ทำให้ค่า K และ D สอดคล้องกับความเป็นจริงทางเทคนิคครับ")
