@@ -217,7 +217,7 @@ st.sidebar.markdown("---")
 st.sidebar.subheader("🧪 ทดสอบการเชื่อมต่อ")
 if st.sidebar.button("📤 ส่งข้อความทดสอบไป Telegram", use_container_width=True):
     if telegram_token and telegram_chat_id:
-        success = send_telegram_notification("🟢 *ทดสอบการเชื่อมต่อสำเร็จ!* บอทพร้อมส่งแจ้งเตือนทุก Stage แบบไม่มีวันเวลาแล้วค่ะ", telegram_token, telegram_chat_id)
+        success = send_telegram_notification("🟢 *ทดสอบการเชื่อมต่อสำเร็จ!* บอทพร้อมส่งแจ้งเตือนทุก Stage แล้วค่ะ", telegram_token, telegram_chat_id)
         if success:
             st.sidebar.success("✅ ส่งข้อความสำเร็จ!")
         else:
