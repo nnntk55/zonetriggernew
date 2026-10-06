@@ -48,7 +48,6 @@ def add_log(message, tg_token="", tg_chat_id=""):
     if len(st.session_state.logs) > 50:
         st.session_state.logs.pop()
     
-    # ส่งเข้า Telegram ทันทีเมื่อมีข้อความสำคัญ
     if "📢" in message or "🔥" in message or "🚀" in message or "🛑" in message:
         send_telegram_notification(log_entry, tg_token, tg_chat_id)
 
@@ -87,12 +86,12 @@ def run_bot(tg_token, tg_chat_id):
                     if latest_k > 55:
                         msg = f"📢 *[Stage 1]*: 4H TO HIGH ZONE\nStochastic K = {latest_k:.2f}\n👉 รอสัญญาณ HIGH ZONE STAGE 2"
                         add_log(msg, tg_token, tg_chat_id)
-                        st.session_state.target_direction = "HIGH"  # ล็อกทิศทางเป็น HIGH ทันที
+                        st.session_state.target_direction = "HIGH"
                         st.session_state.current_stage = 2
                     elif latest_k < 45:
                         msg = f"📢 *[Stage 1]*: 4H TO LOW ZONE\nStochastic K = {latest_k:.2f}\n👉 รอสัญญาณ LOW ZONE STAGE 2"
                         add_log(msg, tg_token, tg_chat_id)
-                        st.session_state.target_direction = "LOW"   # ล็อกทิศทางเป็น LOW ทันที
+                        st.session_state.target_direction = "LOW"
                         st.session_state.current_stage = 2
                         
             elif stage == 2:
@@ -101,6 +100,19 @@ def run_bot(tg_token, tg_chat_id):
                     k_1h, _ = calculate_stochastic(df_1h)
                     latest_k = float(k_1h.iloc[-1])
                     
+                    # ถ้าสถานะเป็น Stage 2 แต่ Direction ยังเป็น "-" ให้บังคับดึงจาก Log ล่าสุดหรือกำหนดค่าสำรองป้องกันหลุด
+                    if direction == "-" or direction not in ["HIGH", "LOW"]:
+                        # เช็คจาก Log ล่าสุดเพื่อกู้ค่า Direction กลับมาอัตโนมัติ
+                        for log in st.session_state.logs:
+                            if "HIGH ZONE" in log:
+                                st.session_state.target_direction = "HIGH"
+                                direction = "HIGH"
+                                break
+                            elif "LOW ZONE" in log:
+                                st.session_state.target_direction = "LOW"
+                                direction = "LOW"
+                                break
+
                     if direction == "HIGH" and latest_k > 85:
                         msg = f"📢 *[Stage 2]*: 1H HIGH ZONE\nStochastic K = {latest_k:.2f}\n👉 รอสัญญาณ HIGH ZONE STAGE 3"
                         add_log(msg, tg_token, tg_chat_id)
@@ -147,7 +159,6 @@ def run_bot(tg_token, tg_chat_id):
 st.title("🛡️ XAUUSD Zone Trigger Bot Dashboard")
 st.markdown("ระบบเฝ้าระกราฟทองคำอัตโนมัติ 3 Stages พร้อมระบบส่งแจ้งเตือนเข้า Telegram แบบ Real-Time")
 
-# Sidebar สำหรับตั้งค่า Telegram และปุ่มทดสอบ
 st.sidebar.header("⚙️ Telegram Settings")
 telegram_token = st.sidebar.text_input("Bot Token", type="password", placeholder="ใส่ Bot Token")
 telegram_chat_id = st.sidebar.text_input("Chat ID", placeholder="ใส่ Chat ID")
@@ -164,14 +175,24 @@ if st.sidebar.button("📤 ส่งข้อความทดสอบไป T
     else:
         st.sidebar.warning("⚠️ กรุณากรอก Bot Token และ Chat ID ก่อนกดทดสอบ")
 
-# แสดงสถานะปัจจุบัน (ดึงจาก session_state)
+# แสดงสถานะปัจจุบัน (พร้อมระบบกู้คืนค่า Direction อัตโนมัติหากอยู่ Stage 2 แล้วยังเป็น "-")
+display_direction = st.session_state.target_direction
+if st.session_state.current_stage in [2, 3] and display_direction == "-":
+    for log in st.session_state.logs:
+        if "HIGH ZONE" in log:
+            display_direction = "HIGH"
+            break
+        elif "LOW ZONE" in log:
+            display_direction = "LOW"
+            break
+
 col1, col2, col3 = st.columns(3)
 with col1:
     st.metric("Bot Status", st.session_state.bot_status)
 with col2:
     st.metric("Current Stage", f"Stage {st.session_state.current_stage}")
 with col3:
-    st.metric("Target Direction", st.session_state.target_direction)
+    st.metric("Target Direction", display_direction)
 
 st.divider()
 
@@ -182,7 +203,6 @@ with col_btn1:
             st.session_state.bot_status = "Running"
             add_log("🚀 XAUUSD Zone Trigger Bot Started...", telegram_token, telegram_chat_id)
             
-            # เปิด Background Thread
             t = threading.Thread(target=run_bot, args=(telegram_token, telegram_chat_id), daemon=True)
             t.start()
             
