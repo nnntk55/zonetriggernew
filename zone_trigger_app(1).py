@@ -6,18 +6,13 @@ import yfinance as yf
 
 st.set_page_config(page_title="ZONE TRIGGER // XAUUSD Live Auto", page_icon="⚡", layout="centered")
 
-st.title("⚡ ZONE TRIGGER // XAUUSD Live Radar (Exness Match)")
-st.markdown("ระบบสแกนและควบคุมลำดับสัญญาณ 3 ด่าน (4H ➔ 1H ➔ 15M) ตรงกับราคาหน้าจอ Exness")
+st.title("⚡ ZONE TRIGGER // XAUUSD Live Radar (Auto Sync)")
+st.markdown("ระบบสแกนและควบคุมลำดับสัญญาณ 3 ด่าน (4H ➔ 1H ➔ 15M) ดึงราคาอัตโนมัติ")
 
 # Sidebar settings
 st.sidebar.header("⚙️ ตั้งค่าระบบ Telegram")
 bot_token = st.sidebar.text_input("Telegram Bot Token", type="password", placeholder="เช่น 123456789:ABCdef...")
 chat_id = st.sidebar.text_input("Telegram Chat ID", placeholder="เช่น 987654321")
-
-st.sidebar.header("🎛️ ตั้งค่าราคาหน้าจอ Exness")
-# ให้คุณกรอกราคาที่เห็นบนจอ Exness ใส่ตรงนี้ได้เลย (หรือปล่อยให้ระบบดึงอัตโนมัติ)
-exness_manual_price = st.sidebar.number_input("ราคาหน้าจอ Exness ปัจจุบัน", value=4161.0, step=0.1, format="%.2f")
-use_manual = st.sidebar.checkbox("ล็อกราคาตามหน้าจอ Exness นี้เลย (แนะนำเพื่อความแม่นยำ 100%)", value=True)
 
 st.sidebar.header("🔄 ควบคุมสถานะระบบ")
 if st.sidebar.button("♻️ รีเซ็ตสถานะกลับไปด่าน 1"):
@@ -45,22 +40,23 @@ def send_telegram(token, chat_id, message):
     except Exception as e:
         return False, str(e)
 
-# ฟังก์ชันดึงราคา
-def get_current_price(manual_price, is_manual):
-    if is_manual:
-        return manual_price
-    try:
-        # ใช้ Yahoo Finance ดึงราคา Spot ทองคำโดยตรง (ใกล้เคียง Exness มากกว่า Binance)
-        ticker = yf.Ticker("GC=F")
-        hist = ticker.history(period="1d")
-        if not hist.empty:
-            return float(hist['Close'].iloc[-1])
-    except:
-        pass
-    return 4161.00
+# ฟังก์ชันดึงราคาอัตโนมัติ (เลือกตัวที่ตรงกับตลาด Spot ทองคำจริงที่สุด)
+def get_live_market_price():
+    tickers = ["GC=F", "XAUUSD=X"]
+    for t in tickers:
+        try:
+            ticker = yf.Ticker(t)
+            hist = ticker.history(period="1d", interval="1m")
+            if not hist.empty:
+                val = float(hist['Close'].iloc[-1])
+                if val > 1000:  # กรองราคาให้สมเหตุสมผล
+                    return val
+        except:
+            continue
+    return 4161.00  # Fallback สำรอง
 
 if st.sidebar.button("🧪 ทดสอบส่งข้อความเข้า Telegram"):
-    success, msg = send_telegram(bot_token, chat_id, "⚡ *Test Alert* จากระบบ ZONE TRIGGER XAUUSD พร้อมทำงานแล้ว!")
+    success, msg = send_telegram(bot_token, chat_id, "⚡ *Test Alert* จากระบบ ZONE TRIGGER XAUUSD พร้อมทำงานออโต้อีกครั้งแล้ว!")
     if success:
         st.sidebar.success(msg)
     else:
@@ -69,7 +65,7 @@ if st.sidebar.button("🧪 ทดสอบส่งข้อความเข�
 st.markdown("---")
 st.subheader("🎯 สถานะเรดาร์ปัจจุบัน (State Machine)")
 
-current_price_display = get_current_price(exness_manual_price, use_manual)
+current_price_display = get_live_market_price()
 
 col1, col2, col3 = st.columns(3)
 with col1:
@@ -77,7 +73,7 @@ with col1:
 with col2:
     st.metric("ทิศทางเป้าหมาย", str(st.session_state['active_direction']) if st.session_state['active_direction'] else "รอสัญญาณด่าน 1")
 with col3:
-    st.metric("ราคาเทียบเท่า Exness", f"{current_price_display:.2f} USD")
+    st.metric("ราคาตลาดสด (Auto)", f"{current_price_display:.2f} USD")
 
 def calculate_stochastic(df, period=14, smooth_k=3):
     df = df.copy()
@@ -92,11 +88,11 @@ def calculate_stochastic(df, period=14, smooth_k=3):
 
 if st.button("🔍 กดสแกนกราฟและเช็กเงื่อนไขเรียลไทม์", type="primary"):
     if not bot_token or not chat_id:
-        st.error("⚠️️ กรุณากรอก Telegram Bot Token และ Chat ID ที่ Sidebar ด้านซ้ายก่อนกดสแกน")
+        st.error("⚠ กรุณากรอก Telegram Bot Token และ Chat ID ที่ Sidebar ด้านซ้ายก่อนกดสแกน")
     else:
-        with st.spinner("กำลังประมวลผลข้อมูลและเช็กสัญญาณแท่งเทียน..."):
+        with st.spinner("กำลังดึงราคาสดและประมวลผลข้อมูลแท่งเทียน..."):
             try:
-                curr_price = get_current_price(exness_manual_price, use_manual)
+                curr_price = get_live_market_price()
 
                 ticker = "GC=F"
                 df_raw = yf.download(ticker, period="30d", interval="15m", progress=False)
@@ -139,7 +135,7 @@ if st.button("🔍 กดสแกนกราฟและเช็กเงื�
                 curr_d_15m = df_15m_ind['D'].iloc[-1]
                 prev_d_15m = df_15m_ind['D'].iloc[-2]
                 
-                st.success(f"✅ สแกนสำเร็จ | ราคาอ้างอิง: **{curr_price:.2f} USD**")
+                st.success(f"✅ สแกนสำเร็จ | ราคาอ้างอิงอัตโนมัติ: **{curr_price:.2f} USD**")
                 st.write(f"📊 **ค่า Stochastic:** 4H K = **{curr_4h:.2f}** | 1H K = **{curr_1h:.2f}** | 15M K = **{curr_15m:.2f}**")
                 
                 stage = st.session_state["current_stage"]
@@ -153,7 +149,7 @@ if st.button("🔍 กดสแกนกราฟและเช็กเงื�
                         msg = (
                             "🚨 *ZONE TRIGGER // XAUUSD*\n"
                             "🛡️ *[Stage 1]* 4H UP TO HIGH ZONE\n"
-                            f"💰 ราคา Exness: {curr_price:.2f} | 4H K = {curr_4h:.2f}\n"
+                            f"💰 ราคาตลาด: {curr_price:.2f} | 4H K = {curr_4h:.2f}\n"
                             "👉 รอสัญญาณโซน HIGH ด่าน 2 (1H K > 85)"
                         )
                         send_telegram(bot_token, chat_id, msg)
@@ -164,7 +160,7 @@ if st.button("🔍 กดสแกนกราฟและเช็กเงื�
                         msg = (
                             "🚨 *ZONE TRIGGER // XAUUSD*\n"
                             "📉 *[Stage 1]* 4H DOWN TO LOW ZONE\n"
-                            f"💰 ราคา Exness: {curr_price:.2f} | 4H K = {curr_4h:.2f}\n"
+                            f"💰 ราคาตลาด: {curr_price:.2f} | 4H K = {curr_4h:.2f}\n"
                             "👉 รอสัญญาณโซน LOW ด่าน 2 (1H K < 15)"
                         )
                         send_telegram(bot_token, chat_id, msg)
@@ -180,7 +176,7 @@ if st.button("🔍 กดสแกนกราฟและเช็กเงื�
                             msg = (
                                 "🚨 *ZONE TRIGGER // XAUUSD*\n"
                                 "⚡ *[Stage 2]* 1H HIGH ZONE\n"
-                                f"💰 ราคา Exness: {curr_price:.2f} | 1H K = {curr_1h:.2f}\n"
+                                f"💰 ราคาตลาด: {curr_price:.2f} | 1H K = {curr_1h:.2f}\n"
                                 "👉 รอสัญญาณ 15M Cross Above 80 (ด่าน 3)"
                             )
                             send_telegram(bot_token, chat_id, msg)
@@ -193,7 +189,7 @@ if st.button("🔍 กดสแกนกราฟและเช็กเงื�
                             msg = (
                                 "🚨 *ZONE TRIGGER // XAUUSD*\n"
                                 "⚡ *[Stage 2]* 1H LOW ZONE\n"
-                                f"💰 ราคา Exness: {curr_price:.2f} | 1H K = {curr_1h:.2f}\n"
+                                f"💰 ราคาตลาด: {curr_price:.2f} | 1H K = {curr_1h:.2f}\n"
                                 "👉 รอสัญญาณ 15M Cross Under 20 (ด่าน 3)"
                             )
                             send_telegram(bot_token, chat_id, msg)
@@ -209,7 +205,7 @@ if st.button("🔍 กดสแกนกราฟและเช็กเงื�
                             msg = (
                                 "🔥 *🚨 ZONE TRIGGER // XAUUSD*\n"
                                 "🛑 *[Stage 3]* 15M HIGH ZONE TRIGGER\n"
-                                f"💰 ราคา Exness: {curr_price:.2f} | 15M K = {curr_15m:.2f}\n"
+                                f"💰 ราคาตลาด: {curr_price:.2f} | 15M K = {curr_15m:.2f}\n"
                                 "🏁 *ปิดรอบสมบูรณ์! เริ่มรอบใหม่รอ Stage 1*"
                             )
                             send_telegram(bot_token, chat_id, msg)
@@ -224,7 +220,7 @@ if st.button("🔍 กดสแกนกราฟและเช็กเงื�
                             msg = (
                                 "🔥 *🚨 ZONE TRIGGER // XAUUSD*\n"
                                 "🛑 *[Stage 3]* 15M LOW ZONE TRIGGER\n"
-                                f"💰 ราคา Exness: {curr_price:.2f} | 15M K = {curr_15m:.2f}\n"
+                                f"💰 ราคาตลาด: {curr_price:.2f} | 15M K = {curr_15m:.2f}\n"
                                 "🏁 *ปิดรอบสมบูรณ์! เริ่มรอบใหม่รอ Stage 1*"
                             )
                             send_telegram(bot_token, chat_id, msg)
@@ -238,4 +234,4 @@ if st.button("🔍 กดสแกนกราฟและเช็กเงื�
                 st.error(f"เกิดข้อผิดพลาดในการดึงข้อมูล: {e}")
 
 st.markdown("---")
-st.markdown("💡 **วิธีใช้:** สามารถพิมพ์ราคาจากหน้าจอ Exness (เช่น 4161) ใส่ในช่องซ้ายมือได้ทันที ราคาในเรดาร์จะตรงกับหน้าจอของคุณเป๊ะๆ ครับ")
+st.markdown("💡 **ระบบทำงานแบบอัตโนมัติเต็มตัว:** ดึงราคาตลาดสดมาประมวลผลและเช็กเงื่อนไข 3 ด่านพร้อมส่งเข้า Telegram ทันทีเมื่อกดปุ่มสแกนครับ")
