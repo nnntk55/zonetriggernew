@@ -48,7 +48,7 @@ def add_log(message, tg_token="", tg_chat_id=""):
     if len(st.session_state.logs) > 50:
         st.session_state.logs.pop()
     
-    # ส่งเข้า Telegram ทันทีที่มีการ Log ข้อความแจ้งเตือนสำคัญ
+    # [แก้ไขจุดนี้] เพิ่ม "🛑" เข้าไปเพื่อให้ส่งเข้า Telegram ด้วยเวลาหยุดบอท
     if "📢" in message or "🔥" in message or "🚀" in message or "🛑" in message:
         send_telegram_notification(log_entry, tg_token, tg_chat_id)
 
@@ -164,7 +164,7 @@ if st.sidebar.button("📤 ส่งข้อความทดสอบไป T
         else:
             st.sidebar.error("❌ ส่งไม่ผ่าน กรุณาตรวจสอบ Token และ Chat ID อีกครั้ง")
     else:
-        st.sidebar.warning("⚠️️ กรุณากรอก Bot Token และ Chat ID ก่อนกดทดสอบ")
+        st.sidebar.warning("⚠️ กรุณากรอก Bot Token และ Chat ID ก่อนกดทดสอบ")
 
 col1, col2, col3 = st.columns(3)
 with col1:
@@ -180,7 +180,6 @@ col_btn1, col_btn2 = st.columns(2)
 with col_btn1:
     if st.button("▶️ Start Bot", use_container_width=True):
         if st.session_state.bot_status != "Running":
-            # บันทึก Log ทันทีที่กด Start ก่อนเปิด Thread
             add_log("🚀 XAUUSD Zone Trigger Bot Started...", telegram_token, telegram_chat_id)
             t = threading.Thread(target=run_bot, args=(telegram_token, telegram_chat_id), daemon=True)
             t.start()
