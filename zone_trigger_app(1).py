@@ -6,13 +6,18 @@ import yfinance as yf
 
 st.set_page_config(page_title="ZONE TRIGGER // XAUUSD Live Auto", page_icon="⚡", layout="centered")
 
-st.title("⚡ ZONE TRIGGER // XAUUSD Live Radar (Auto-Sync Spot)")
-st.markdown("ระบบสแกนและควบคุมลำดับสัญญาณ 3 ด่าน (4H ➔ 1H ➔ 15M) พร้อมดึงราคาสดอัตโนมัติจากตลาดจริงโดยตรง")
+st.title("⚡ ZONE TRIGGER // XAUUSD Live Radar (Exness Match)")
+st.markdown("ระบบสแกนและควบคุมลำดับสัญญาณ 3 ด่าน (4H ➔ 1H ➔ 15M) ตรงกับราคาหน้าจอ Exness")
 
 # Sidebar settings
 st.sidebar.header("⚙️ ตั้งค่าระบบ Telegram")
 bot_token = st.sidebar.text_input("Telegram Bot Token", type="password", placeholder="เช่น 123456789:ABCdef...")
 chat_id = st.sidebar.text_input("Telegram Chat ID", placeholder="เช่น 987654321")
+
+st.sidebar.header("🎛️ ตั้งค่าราคาหน้าจอ Exness")
+# ให้คุณกรอกราคาที่เห็นบนจอ Exness ใส่ตรงนี้ได้เลย (หรือปล่อยให้ระบบดึงอัตโนมัติ)
+exness_manual_price = st.sidebar.number_input("ราคาหน้าจอ Exness ปัจจุบัน", value=4161.0, step=0.1, format="%.2f")
+use_manual = st.sidebar.checkbox("ล็อกราคาตามหน้าจอ Exness นี้เลย (แนะนำเพื่อความแม่นยำ 100%)", value=True)
 
 st.sidebar.header("🔄 ควบคุมสถานะระบบ")
 if st.sidebar.button("♻️ รีเซ็ตสถานะกลับไปด่าน 1"):
@@ -40,26 +45,19 @@ def send_telegram(token, chat_id, message):
     except Exception as e:
         return False, str(e)
 
-# ฟังก์ชันดึงราคาสดอัตโนมัติจากตลาด Spot สากล (แบบตรงเป๊ะ ไม่มีการหักลบใดๆ)
-def get_live_spot_price():
+# ฟังก์ชันดึงราคา
+def get_current_price(manual_price, is_manual):
+    if is_manual:
+        return manual_price
     try:
-        url = "https://api.binance.com/api/v3/ticker/price?symbol=XAUTUSDT"
-        res = requests.get(url, timeout=3)
-        if res.status_code == 200:
-            data = res.json()
-            return float(data['price'])
-    except:
-        pass
-    
-    try:
+        # ใช้ Yahoo Finance ดึงราคา Spot ทองคำโดยตรง (ใกล้เคียง Exness มากกว่า Binance)
         ticker = yf.Ticker("GC=F")
         hist = ticker.history(period="1d")
         if not hist.empty:
             return float(hist['Close'].iloc[-1])
     except:
         pass
-        
-    return 4195.00
+    return 4161.00
 
 if st.sidebar.button("🧪 ทดสอบส่งข้อความเข้า Telegram"):
     success, msg = send_telegram(bot_token, chat_id, "⚡ *Test Alert* จากระบบ ZONE TRIGGER XAUUSD พร้อมทำงานแล้ว!")
@@ -71,7 +69,7 @@ if st.sidebar.button("🧪 ทดสอบส่งข้อความเข�
 st.markdown("---")
 st.subheader("🎯 สถานะเรดาร์ปัจจุบัน (State Machine)")
 
-live_price_auto = get_live_spot_price()
+current_price_display = get_current_price(exness_manual_price, use_manual)
 
 col1, col2, col3 = st.columns(3)
 with col1:
@@ -79,7 +77,7 @@ with col1:
 with col2:
     st.metric("ทิศทางเป้าหมาย", str(st.session_state['active_direction']) if st.session_state['active_direction'] else "รอสัญญาณด่าน 1")
 with col3:
-    st.metric("ราคาสดอัตโนมัติ (Spot)", f"{live_price_auto:.2f} USD")
+    st.metric("ราคาเทียบเท่า Exness", f"{current_price_display:.2f} USD")
 
 def calculate_stochastic(df, period=14, smooth_k=3):
     df = df.copy()
@@ -92,13 +90,13 @@ def calculate_stochastic(df, period=14, smooth_k=3):
     df['D'] = d
     return df.dropna()
 
-if st.button("🔍 กดสแกนกราฟและเช็กเงื่อนไขเรียลไทม์ (Auto)", type="primary"):
+if st.button("🔍 กดสแกนกราฟและเช็กเงื่อนไขเรียลไทม์", type="primary"):
     if not bot_token or not chat_id:
-        st.error("⚠️ กรุณากรอก Telegram Bot Token และ Chat ID ที่ Sidebar ด้านซ้ายก่อนกดสแกน")
+        st.error("⚠️️ กรุณากรอก Telegram Bot Token และ Chat ID ที่ Sidebar ด้านซ้ายก่อนกดสแกน")
     else:
-        with st.spinner("กำลังดึงราคาสดและคำนวณแท่งเทียนอัตโนมัติ..."):
+        with st.spinner("กำลังประมวลผลข้อมูลและเช็กสัญญาณแท่งเทียน..."):
             try:
-                current_spot = get_live_spot_price()
+                curr_price = get_current_price(exness_manual_price, use_manual)
 
                 ticker = "GC=F"
                 df_raw = yf.download(ticker, period="30d", interval="15m", progress=False)
@@ -123,17 +121,16 @@ if st.button("🔍 กดสแกนกราฟและเช็กเงื�
                 }).dropna()
                 
                 if not df_15m.empty:
-                    df_15m.iloc[-1, df_15m.columns.get_loc('Close')] = current_spot
-                    if current_spot > df_15m.iloc[-1]['High']:
-                        df_15m.iloc[-1, df_15m.columns.get_loc('High')] = current_spot
-                    if current_spot < df_15m.iloc[-1]['Low']:
-                        df_15m.iloc[-1, df_15m.columns.get_loc('Low')] = current_spot
+                    df_15m.iloc[-1, df_15m.columns.get_loc('Close')] = curr_price
+                    if curr_price > df_15m.iloc[-1]['High']:
+                        df_15m.iloc[-1, df_15m.columns.get_loc('High')] = curr_price
+                    if curr_price < df_15m.iloc[-1]['Low']:
+                        df_15m.iloc[-1, df_15m.columns.get_loc('Low')] = curr_price
 
                 df_4h_ind = calculate_stochastic(df_4h)
                 df_1h_ind = calculate_stochastic(df_1h)
                 df_15m_ind = calculate_stochastic(df_15m)
                 
-                curr_price = current_spot
                 curr_4h = df_4h_ind['K'].iloc[-1]
                 curr_1h = df_1h_ind['K'].iloc[-1]
                 
@@ -142,7 +139,7 @@ if st.button("🔍 กดสแกนกราฟและเช็กเงื�
                 curr_d_15m = df_15m_ind['D'].iloc[-1]
                 prev_d_15m = df_15m_ind['D'].iloc[-2]
                 
-                st.success(f"✅ ดึงราคาสดอัตโนมัติสำเร็จ | ราคา Spot: **{curr_price:.2f} USD**")
+                st.success(f"✅ สแกนสำเร็จ | ราคาอ้างอิง: **{curr_price:.2f} USD**")
                 st.write(f"📊 **ค่า Stochastic:** 4H K = **{curr_4h:.2f}** | 1H K = **{curr_1h:.2f}** | 15M K = **{curr_15m:.2f}**")
                 
                 stage = st.session_state["current_stage"]
@@ -154,24 +151,24 @@ if st.button("🔍 กดสแกนกราฟและเช็กเงื�
                         st.session_state["current_stage"] = 2
                         st.session_state["active_direction"] = "HIGH"
                         msg = (
-                            "🚨 *ZONE TRIGGER // XAUUSD (Auto)*\n"
+                            "🚨 *ZONE TRIGGER // XAUUSD*\n"
                             "🛡️ *[Stage 1]* 4H UP TO HIGH ZONE\n"
-                            f"💰 ราคาสด: {curr_price:.2f} | 4H K = {curr_4h:.2f}\n"
+                            f"💰 ราคา Exness: {curr_price:.2f} | 4H K = {curr_4h:.2f}\n"
                             "👉 รอสัญญาณโซน HIGH ด่าน 2 (1H K > 85)"
                         )
                         send_telegram(bot_token, chat_id, msg)
-                        st.info("🎯 ผ่านด่าน 1 ฝั่ง HIGH สำเร็จ! ระบบเลื่อนไปรอสัญญาณ 1H โซน HIGH")
+                        st.info("🎯 ผ่านด่าน 1 ฝั่ง HIGH สำเร็จ!")
                     elif curr_4h < 45:
                         st.session_state["current_stage"] = 2
                         st.session_state["active_direction"] = "LOW"
                         msg = (
-                            "🚨 *ZONE TRIGGER // XAUUSD (Auto)*\n"
+                            "🚨 *ZONE TRIGGER // XAUUSD*\n"
                             "📉 *[Stage 1]* 4H DOWN TO LOW ZONE\n"
-                            f"💰 ราคาสด: {curr_price:.2f} | 4H K = {curr_4h:.2f}\n"
+                            f"💰 ราคา Exness: {curr_price:.2f} | 4H K = {curr_4h:.2f}\n"
                             "👉 รอสัญญาณโซน LOW ด่าน 2 (1H K < 15)"
                         )
                         send_telegram(bot_token, chat_id, msg)
-                        st.info("🎯 ผ่านด่าน 1 ฝั่ง LOW สำเร็จ! ระบบเลื่อนไปรอสัญญาณ 1H โซน LOW")
+                        st.info("🎯 ผ่านด่าน 1 ฝั่ง LOW สำเร็จ!")
                     else:
                         st.warning(f"⏳ ด่าน 1: 4H K อยู่ที่ {curr_4h:.2f} (ยังไม่ทะลุ > 55 หรือ < 45)")
                 
@@ -181,26 +178,26 @@ if st.button("🔍 กดสแกนกราฟและเช็กเงื�
                         if curr_1h > 85:
                             st.session_state["current_stage"] = 3
                             msg = (
-                                "🚨 *ZONE TRIGGER // XAUUSD (Auto)*\n"
+                                "🚨 *ZONE TRIGGER // XAUUSD*\n"
                                 "⚡ *[Stage 2]* 1H HIGH ZONE\n"
-                                f"💰 ราคาสด: {curr_price:.2f} | 1H K = {curr_1h:.2f}\n"
+                                f"💰 ราคา Exness: {curr_price:.2f} | 1H K = {curr_1h:.2f}\n"
                                 "👉 รอสัญญาณ 15M Cross Above 80 (ด่าน 3)"
                             )
                             send_telegram(bot_token, chat_id, msg)
-                            st.info("🎯 ผ่านด่าน 2 ฝั่ง HIGH สำเร็จ! ระบบเลื่อนไปรอสัญญาณด่าน 3 (15M)")
+                            st.info("🎯 ผ่านด่าน 2 ฝั่ง HIGH สำเร็จ!")
                         else:
                             st.warning(f"⏳ กำลังเฝ้าระวังด่าน 2 (HIGH): 1H K = {curr_1h:.2f} (ต้องมากกว่า 85)")
                     elif direction == "LOW":
                         if curr_1h < 15:
                             st.session_state["current_stage"] = 3
                             msg = (
-                                "🚨 *ZONE TRIGGER // XAUUSD (Auto)*\n"
+                                "🚨 *ZONE TRIGGER // XAUUSD*\n"
                                 "⚡ *[Stage 2]* 1H LOW ZONE\n"
-                                f"💰 ราคาสด: {curr_price:.2f} | 1H K = {curr_1h:.2f}\n"
+                                f"💰 ราคา Exness: {curr_price:.2f} | 1H K = {curr_1h:.2f}\n"
                                 "👉 รอสัญญาณ 15M Cross Under 20 (ด่าน 3)"
                             )
                             send_telegram(bot_token, chat_id, msg)
-                            st.info("🎯 ผ่านด่าน 2 ฝั่ง LOW สำเร็จ! ระบบเลื่อนไปรอสัญญาณด่าน 3 (15M)")
+                            st.info("🎯 ผ่านด่าน 2 ฝั่ง LOW สำเร็จ!")
                         else:
                             st.warning(f"⏳ กำลังเฝ้าระวังด่าน 2 (LOW): 1H K = {curr_1h:.2f} (ต้องน้อยกว่า 15)")
                 
@@ -210,35 +207,35 @@ if st.button("🔍 กดสแกนกราฟและเช็กเงื�
                         is_cross_above_80 = (curr_15m >= 80) and (prev_15m <= prev_d_15m) and (curr_15m > curr_d_15m)
                         if is_cross_above_80:
                             msg = (
-                                "🔥 *🚨 ZONE TRIGGER // XAUUSD (Auto)*\n"
+                                "🔥 *🚨 ZONE TRIGGER // XAUUSD*\n"
                                 "🛑 *[Stage 3]* 15M HIGH ZONE TRIGGER\n"
-                                f"💰 ราคาสด: {curr_price:.2f} | 15M K = {curr_15m:.2f}\n"
+                                f"💰 ราคา Exness: {curr_price:.2f} | 15M K = {curr_15m:.2f}\n"
                                 "🏁 *ปิดรอบสมบูรณ์! เริ่มรอบใหม่รอ Stage 1*"
                             )
                             send_telegram(bot_token, chat_id, msg)
-                            st.success("🎯 ครบ 3 ด่านฝั่ง HIGH สมบูรณ์! รีเซ็ตรอบกลับไปเริ่มต้นด่าน 1 ใหม่")
+                            st.success("🎯 ครบ 3 ด่านฝั่ง HIGH สมบูรณ์! รีเซ็ตรอบใหม่")
                             st.session_state["current_stage"] = 1
                             st.session_state["active_direction"] = None
                         else:
-                            st.warning(f"⏳ กำลังเฝ้าระวังด่าน 3 (HIGH): รอ 15M Cross Above 80 (ปัจจุบัน K = {curr_15m:.2f})")
+                            st.warning(f"⏳ กำลังเฝ้าระวังด่าน 3 (HIGH): รอ 15M Cross Above 80 (K = {curr_15m:.2f})")
                     elif direction == "LOW":
                         is_cross_under_20 = (curr_15m <= 20) and (prev_15m >= prev_d_15m) and (curr_15m < curr_d_15m)
                         if is_cross_under_20:
                             msg = (
-                                "🔥 *🚨 ZONE TRIGGER // XAUUSD (Auto)*\n"
+                                "🔥 *🚨 ZONE TRIGGER // XAUUSD*\n"
                                 "🛑 *[Stage 3]* 15M LOW ZONE TRIGGER\n"
-                                f"💰 ราคาสด: {curr_price:.2f} | 15M K = {curr_15m:.2f}\n"
+                                f"💰 ราคา Exness: {curr_price:.2f} | 15M K = {curr_15m:.2f}\n"
                                 "🏁 *ปิดรอบสมบูรณ์! เริ่มรอบใหม่รอ Stage 1*"
                             )
                             send_telegram(bot_token, chat_id, msg)
-                            st.success("🎯 ครบ 3 ด่านฝั่ง LOW สมบูรณ์! รีเซ็ตรอบกลับไปเริ่มต้นด่าน 1 ใหม่")
+                            st.success("🎯 ครบ 3 ด่านฝั่ง LOW สมบูรณ์! รีเซ็ตรอบใหม่")
                             st.session_state["current_stage"] = 1
                             st.session_state["active_direction"] = None
                         else:
-                            st.warning(f"⏳ กำลังเฝ้าระวังด่าน 3 (LOW): รอ 15M Cross Under 20 (ปัจจุบัน K = {curr_15m:.2f})")
+                            st.warning(f"⏳ กำลังเฝ้าระวังด่าน 3 (LOW): รอ 15M Cross Under 20 (K = {curr_15m:.2f})")
                             
             except Exception as e:
                 st.error(f"เกิดข้อผิดพลาดในการดึงข้อมูล: {e}")
 
 st.markdown("---")
-st.markdown("💡 **สถานะ:** เอาตัวเลขที่หักลบออกเรียบร้อยแล้ว ราคาจะแสดงผลตามตลาดจริงโดยตรง (โชว์ราคาจริงเต็มจำนวน)")
+st.markdown("💡 **วิธีใช้:** สามารถพิมพ์ราคาจากหน้าจอ Exness (เช่น 4161) ใส่ในช่องซ้ายมือได้ทันที ราคาในเรดาร์จะตรงกับหน้าจอของคุณเป๊ะๆ ครับ")
