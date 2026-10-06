@@ -100,18 +100,6 @@ def run_bot(tg_token, tg_chat_id):
                     k_1h, _ = calculate_stochastic(df_1h)
                     latest_k = float(k_1h.iloc[-1])
                     
-                    # เช็คกู้คืนทิศทางจาก Log หากยังเป็นขีด
-                    if st.session_state.target_direction == "-":
-                        for log in st.session_state.logs:
-                            if "HIGH ZONE" in log:
-                                st.session_state.target_direction = "HIGH"
-                                direction = "HIGH"
-                                break
-                            elif "LOW ZONE" in log:
-                                st.session_state.target_direction = "LOW"
-                                direction = "LOW"
-                                break
-
                     if direction == "HIGH" and latest_k > 85:
                         msg = f"📢 *[Stage 2]*: 1H HIGH ZONE\nStochastic K = {latest_k:.2f}\n👉 รอสัญญาณ HIGH ZONE STAGE 3"
                         add_log(msg, tg_token, tg_chat_id)
@@ -174,23 +162,9 @@ if st.sidebar.button("📤 ส่งข้อความทดสอบไป T
     else:
         st.sidebar.warning("⚠️ กรุณากรอก Bot Token และ Chat ID ก่อนกดทดสอบ")
 
-# ใช้ st.empty() เพื่อสร้างพื้นที่แสดงสถานะที่สามารถสั่งอัปเดตสดๆ ได้ทันทีโดยไม่ต้องกดรีเฟรชหน้าจอ
 status_placeholder = st.empty()
 
 def render_dashboard_metrics():
-    # ตรวจสอบและดึงทิศทางสำรองจาก Log ถ้าอยู่ใน Stage 2 หรือ 3 แล้วยังเป็น "-"
-    current_dir = st.session_state.target_direction
-    if st.session_state.current_stage in [2, 3] and current_dir == "-":
-        for log in st.session_state.logs:
-            if "HIGH ZONE" in log:
-                current_dir = "HIGH"
-                st.session_state.target_direction = "HIGH"
-                break
-            elif "LOW ZONE" in log:
-                current_dir = "LOW"
-                st.session_state.target_direction = "LOW"
-                break
-
     with status_placeholder.container():
         col1, col2, col3 = st.columns(3)
         with col1:
@@ -198,9 +172,8 @@ def render_dashboard_metrics():
         with col2:
             st.metric("Current Stage", f"Stage {st.session_state.current_stage}")
         with col3:
-            st.metric("Target Direction", current_dir)
+            st.metric("Target Direction", st.session_state.target_direction)
 
-# แสดงผล Metric ครั้งแรกตอนโหลดหน้าเว็บ
 render_dashboard_metrics()
 
 st.divider()
@@ -210,6 +183,10 @@ with col_btn1:
     if st.button("▶️ Start Bot", use_container_width=True):
         if st.session_state.bot_status != "Running":
             st.session_state.bot_status = "Running"
+            # 👉 บังคับรีเซ็ตค่าเริ่มต้นให้เริ่มนับใหม่ที่ Stage 1 เสมอเมื่อกด Start
+            st.session_state.current_stage = 1
+            st.session_state.target_direction = "-"
+            
             add_log("🚀 XAUUSD Zone Trigger Bot Started...", telegram_token, telegram_chat_id)
             
             t = threading.Thread(target=run_bot, args=(telegram_token, telegram_chat_id), daemon=True)
