@@ -48,7 +48,7 @@ def add_log(message, tg_token="", tg_chat_id=""):
     if len(st.session_state.logs) > 50:
         st.session_state.logs.pop()
     
-    # [แก้ไขจุดนี้] เพิ่ม "🛑" เข้าไปเพื่อให้ส่งเข้า Telegram ด้วยเวลาหยุดบอท
+    # ส่งเข้า Telegram ทันทีเมื่อมีข้อความสำคัญ
     if "📢" in message or "🔥" in message or "🚀" in message or "🛑" in message:
         send_telegram_notification(log_entry, tg_token, tg_chat_id)
 
@@ -73,8 +73,6 @@ def fetch_data(period, interval):
 # BACKGROUND BOT WORKER
 # ==========================================
 def run_bot(tg_token, tg_chat_id):
-    st.session_state.bot_status = "Running"
-    
     while st.session_state.bot_status == "Running":
         try:
             stage = st.session_state.current_stage
@@ -166,6 +164,7 @@ if st.sidebar.button("📤 ส่งข้อความทดสอบไป T
     else:
         st.sidebar.warning("⚠️ กรุณากรอก Bot Token และ Chat ID ก่อนกดทดสอบ")
 
+# แสดงสถานะปัจจุบัน (ดึงจาก session_state ทันทีหลังจาก rerun)
 col1, col2, col3 = st.columns(3)
 with col1:
     st.metric("Bot Status", st.session_state.bot_status)
@@ -180,9 +179,15 @@ col_btn1, col_btn2 = st.columns(2)
 with col_btn1:
     if st.button("▶️ Start Bot", use_container_width=True):
         if st.session_state.bot_status != "Running":
+            # 1. เปลี่ยนสถานะเป็น Running ทันทีก่อนเรนเดอร์หน้าใหม่
+            st.session_state.bot_status = "Running"
             add_log("🚀 XAUUSD Zone Trigger Bot Started...", telegram_token, telegram_chat_id)
+            
+            # 2. เปิด Background Thread
             t = threading.Thread(target=run_bot, args=(telegram_token, telegram_chat_id), daemon=True)
             t.start()
+            
+            # 3. สั่งรีเฟรชหน้าจอให้ UI อัปเดตสถานะเป็น Running ทันที
             st.rerun()
 with col_btn2:
     if st.button("⏹️ Stop Bot", use_container_width=True):
