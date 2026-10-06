@@ -162,19 +162,27 @@ if st.sidebar.button("📤 ส่งข้อความทดสอบไป T
     else:
         st.sidebar.warning("⚠️ กรุณากรอก Bot Token และ Chat ID ก่อนกดทดสอบ")
 
-status_placeholder = st.empty()
+# ตรวจสอบและดึงทิศทางสำรองจาก Log หากอยู่ใน Stage 2 หรือ 3 แล้วค่า Direction เป็น "-"
+display_direction = st.session_state.target_direction
+if display_direction == "-" and st.session_state.current_stage in [2, 3]:
+    for log in st.session_state.logs:
+        if "HIGH ZONE" in log:
+            display_direction = "HIGH"
+            st.session_state.target_direction = "HIGH"
+            break
+        elif "LOW ZONE" in log:
+            display_direction = "LOW"
+            st.session_state.target_direction = "LOW"
+            break
 
-def render_dashboard_metrics():
-    with status_placeholder.container():
-        col1, col2, col3 = st.columns(3)
-        with col1:
-            st.metric("Bot Status", st.session_state.bot_status)
-        with col2:
-            st.metric("Current Stage", f"Stage {st.session_state.current_stage}")
-        with col3:
-            st.metric("Target Direction", st.session_state.target_direction)
-
-render_dashboard_metrics()
+# แสดงผล Dashboard Metrics ด้านบน
+col1, col2, col3 = st.columns(3)
+with col1:
+    st.metric("Bot Status", st.session_state.bot_status)
+with col2:
+    st.metric("Current Stage", f"Stage {st.session_state.current_stage}")
+with col3:
+    st.metric("Target Direction", display_direction)
 
 st.divider()
 
@@ -183,7 +191,6 @@ with col_btn1:
     if st.button("▶️ Start Bot", use_container_width=True):
         if st.session_state.bot_status != "Running":
             st.session_state.bot_status = "Running"
-            # 👉 บังคับรีเซ็ตค่าเริ่มต้นให้เริ่มนับใหม่ที่ Stage 1 เสมอเมื่อกด Start
             st.session_state.current_stage = 1
             st.session_state.target_direction = "-"
             
@@ -205,3 +212,8 @@ log_container = st.container(height=400)
 with log_container:
     for log in st.session_state.logs:
         st.text(log)
+
+# ระบบช่วยรีเฟรชหน้าจออัตโนมัติทุกๆ 5 วินาทีขณะที่บอทกำลังรันอยู่ เพื่อดึงสถานะล่าสุดมาแสดงบนหน้าเว็บทันที
+if st.session_state.bot_status == "Running":
+    time.sleep(5)
+    st.rerun()
