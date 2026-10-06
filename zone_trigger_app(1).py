@@ -49,7 +49,7 @@ def add_log(message, tg_token="", tg_chat_id=""):
         st.session_state.logs.pop()
     
     # ส่งเข้า Telegram ทันทีที่มีการ Log ข้อความแจ้งเตือนสำคัญ
-    if "📢" in message or "🔥" in message or "🚀" in message:
+    if "📢" in message or "🔥" in message or "🚀" in message or "🛑" in message:
         send_telegram_notification(log_entry, tg_token, tg_chat_id)
 
 def calculate_stochastic(df, k_period=14, d_period=3, smooth_k=3):
@@ -73,7 +73,6 @@ def fetch_data(period, interval):
 # BACKGROUND BOT WORKER
 # ==========================================
 def run_bot(tg_token, tg_chat_id):
-    add_log("🚀 XAUUSD Zone Trigger Bot Started...", tg_token, tg_chat_id)
     st.session_state.bot_status = "Running"
     
     while st.session_state.bot_status == "Running":
@@ -165,7 +164,7 @@ if st.sidebar.button("📤 ส่งข้อความทดสอบไป T
         else:
             st.sidebar.error("❌ ส่งไม่ผ่าน กรุณาตรวจสอบ Token และ Chat ID อีกครั้ง")
     else:
-            st.sidebar.warning("⚠️ กรุณากรอก Bot Token และ Chat ID ก่อนกดทดสอบ")
+        st.sidebar.warning("⚠️️ กรุณากรอก Bot Token และ Chat ID ก่อนกดทดสอบ")
 
 col1, col2, col3 = st.columns(3)
 with col1:
@@ -181,14 +180,17 @@ col_btn1, col_btn2 = st.columns(2)
 with col_btn1:
     if st.button("▶️ Start Bot", use_container_width=True):
         if st.session_state.bot_status != "Running":
+            # บันทึก Log ทันทีที่กด Start ก่อนเปิด Thread
+            add_log("🚀 XAUUSD Zone Trigger Bot Started...", telegram_token, telegram_chat_id)
             t = threading.Thread(target=run_bot, args=(telegram_token, telegram_chat_id), daemon=True)
             t.start()
             st.rerun()
 with col_btn2:
     if st.button("⏹️ Stop Bot", use_container_width=True):
-        st.session_state.bot_status = "Stopped"
-        add_log("🛑 Bot Stopped by user.", telegram_token, telegram_chat_id)
-        st.rerun()
+        if st.session_state.bot_status == "Running":
+            st.session_state.bot_status = "Stopped"
+            add_log("🛑 Bot Stopped by user.", telegram_token, telegram_chat_id)
+            st.rerun()
 
 st.subheader("📋 Real-Time Activity Logs")
 log_container = st.container(height=400)
